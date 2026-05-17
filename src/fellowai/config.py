@@ -43,16 +43,18 @@ def save_config(cfg: Config) -> None:
     data = {"subdomain": cfg.subdomain, "api_key": cfg.api_key}
 
     if os.name == "posix":
-        # Write to a sibling temp file created with 0o600 from the start,
-        # then atomically rename over the final path. Prevents the API key
-        # from ever existing on disk with umask-permissive permissions.
-        tmp_path = path.with_name(path.name + ".tmp")
-        fd = os.open(
-            tmp_path,
-            os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
-            0o600,
+        # tempfile.mkstemp opens with O_CREAT|O_EXCL and a randomized name,
+        # so we never reuse a stale file (whose mode would be preserved by
+        # O_TRUNC) and never follow a planted symlink. fchmod on the fresh
+        # fd nails the mode to 0o600 regardless of umask before any bytes
+        # are written. Atomic replace then moves it into position.
+        import tempfile
+        fd, tmp_name = tempfile.mkstemp(
+            prefix=".config-", suffix=".toml", dir=str(path.parent)
         )
+        tmp_path = Path(tmp_name)
         try:
+            os.fchmod(fd, 0o600)
             with os.fdopen(fd, "wb") as f:
                 tomli_w.dump(data, f)
             os.replace(tmp_path, path)
