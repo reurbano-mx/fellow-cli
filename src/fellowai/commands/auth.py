@@ -16,8 +16,16 @@ from fellowai.config import Config, ConfigError, delete_config, load_config, sav
 def login() -> None:
     """Configure your Fellow workspace and API key."""
     subdomain = click.prompt("Workspace subdomain", type=str).strip()
-    url = f"https://{subdomain}.fellow.app/settings/api-keys"
+    url = f"https://{subdomain}.fellow.app/"
     click.echo(f"Opening {url} ...")
+    click.echo(
+        "In Fellow: click your workspace name (top left) → "
+        "User settings → API, MCP & Webhooks → New API key."
+    )
+    click.echo(
+        "Note: a workspace admin must first enable Developer API access "
+        "under Workspace settings → Security."
+    )
     try:
         webbrowser.open(url)
     except Exception:
