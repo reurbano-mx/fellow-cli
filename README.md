@@ -76,9 +76,20 @@ fellowai action-items pick --scope mine --not-completed \
   | jq '.[] | {text, due_date}'
 ```
 
-## Relationship to Fellow's MCP server
+## Teaching Claude when to use this vs Fellow's MCP
 
-Use Fellow's MCP (`https://fellow.app/mcp`) when you want natural-language Q&A or semantic search across meetings — those are things this CLI can't do. Use this CLI for everything else: scripting, automation, write operations, bulk export, action-item workflows.
+Run once after login:
+
+```bash
+fellowai install-skill
+```
+
+This drops a `SKILL.md` into `~/.claude/skills/fellowai/` that Claude Code auto-discovers. It tells Claude:
+
+- **Use Fellow's MCP** (`https://fellow.app/mcp`) for natural-language Q&A and semantic search across meetings ("what did we decide about pricing last quarter?"). That's what the MCP is built for.
+- **Use this CLI** for everything else: scripted exports, write operations (complete/uncomplete/archive action items), bulk action-item workflows, piping transcripts into other tools, and anything that needs JSON output.
+
+If you only have the CLI installed (no MCP), Claude will use the CLI for everything — it just won't have semantic search. If you have both, the skill routes Claude to the right one automatically.
 
 ## What this CLI exposes
 
