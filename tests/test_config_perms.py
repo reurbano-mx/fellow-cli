@@ -139,3 +139,26 @@ def test_save_config_rejects_dir_not_owned_by_user(tmp_path, monkeypatch):
     with mock_patch("fellowai.config.os.stat", side_effect=fake_stat):
         with pytest.raises(ConfigError, match="not owned by the current user"):
             save_config(Config(subdomain="test", api_key="secretkey"))
+
+
+def test_save_config_hardens_every_created_intermediate_dir(tmp_path, monkeypatch):
+    """Under umask 000, every intermediate dir created by save_config
+    must end up without group/world bits — not just the leaf."""
+    if os.name != "posix":
+        return
+
+    nested = tmp_path / "a" / "b" / "c"
+    monkeypatch.setenv("FELLOWAI_CONFIG_DIR", str(nested))
+
+    old_umask = os.umask(0o000)
+    try:
+        save_config(Config(subdomain="test", api_key="secretkey"))
+    finally:
+        os.umask(old_umask)
+
+    for d in [tmp_path / "a", tmp_path / "a" / "b", nested]:
+        mode = stat.S_IMODE(d.stat().st_mode)
+        assert mode & 0o077 == 0, (
+            f"intermediate {d} has group/world bits: {oct(mode)}"
+        )
+        assert mode & 0o700 == 0o700

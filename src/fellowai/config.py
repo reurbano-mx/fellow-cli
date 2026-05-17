@@ -38,24 +38,50 @@ def _config_path() -> Path:
     return _config_dir() / "config.toml"
 
 
-def _prepare_config_dir(parent: Path) -> None:
-    """Create the config dir as 0o700 on POSIX; reject unsafe pre-existing dirs.
-
-    Without this, mkdir() honors the process umask — under umask 000 the
-    parent could be world-writable and another local user could replace
-    or unlink the 0o600 config.toml even though the file itself is locked.
-    """
-    parent.mkdir(parents=True, exist_ok=True)
-    if os.name != "posix":
-        return
-    st = os.stat(parent)
-    # Refuse if not owned by us — someone else may be steering loads.
+def _verify_dir(d: Path) -> None:
+    """Refuse anything that isn't a real, user-owned directory."""
+    st = d.lstat()
+    if not stat.S_ISDIR(st.st_mode):
+        raise ConfigError(
+            f"Refusing to write config: {d} is not a directory."
+        )
     if st.st_uid != os.getuid():
         raise ConfigError(
-            f"Refusing to write config: {parent} is not owned by the current user."
+            f"Refusing to write config: {d} is not owned by the current user."
         )
-    # Tighten group/world bits even on pre-existing directories.
-    mode = stat.S_IMODE(st.st_mode)
+
+
+def _prepare_config_dir(parent: Path) -> None:
+    """Create the config dir tree as 0o700 on POSIX; reject unsafe components.
+
+    Without this, mkdir(parents=True) honors the process umask, so under a
+    permissive umask any newly-created ancestor — not just the leaf —
+    could end up world-writable. A local attacker with write access to an
+    intermediate dir could rename or replace the leaf between the chmod
+    here and the os.replace in save_config.
+    """
+    if os.name != "posix":
+        parent.mkdir(parents=True, exist_ok=True)
+        return
+
+    # Identify missing ancestors so we can create + harden each one.
+    missing: list[Path] = []
+    cur = parent
+    while not cur.exists():
+        missing.append(cur)
+        cur = cur.parent
+
+    # Create top-down. mode=0o700 is umask-ANDed (so it can land permissive
+    # under umask 000); follow up with explicit chmod and lstat-verify.
+    for d in reversed(missing):
+        d.mkdir(mode=0o700, exist_ok=False)
+        os.chmod(d, 0o700)
+        _verify_dir(d)
+
+    # Re-validate the leaf and tighten group/world bits if a pre-existing
+    # dir was permissive.
+    _verify_dir(parent)
+    mode = stat.S_IMODE(parent.lstat().st_mode)
     if mode & 0o077:
         os.chmod(parent, mode & 0o700)
 
