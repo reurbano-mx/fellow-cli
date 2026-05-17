@@ -16,26 +16,56 @@ A CLI fixes both. It costs zero permanent context (the agent reads `--help` only
 
 ## Relationship to the Fellow MCP
 
-The CLI does **not** replace the MCP. They serve different jobs and are intended to coexist.
+The CLI does **not** replace the MCP. They serve different jobs, expose different abstractions, and are intended to coexist on the same machine.
 
-**The Fellow MCP (5 read-only tools): `get_action_items`, `get_meeting_participants`, `get_meeting_summary`, `get_meeting_transcript`, `search_meetings`.**
+### Abstraction difference (the deep one)
 
-**Use the MCP when you want to:**
-- Ask natural-language questions about meetings ("what did we decide about the launch date?", "summarize feedback I gave Jake last month").
-- Do **semantic search across meetings** — this is the MCP's killer feature; the public REST API has no equivalent search endpoint.
-- Work inside a conversational AI client (Claude Desktop, ChatGPT, Cursor) without building anything.
+The MCP collapses Fellow's data into a single **"meeting"** concept. The REST API — and therefore this CLI — exposes the actual data model: **three distinct resources** with relationships.
 
-**Use this CLI when you want to:**
-- Pipe Fellow data through Unix tools (`recordings export --include transcript --to - | llm "..."`, into `jq`, `rg`, scripts).
-- Drive the **action-items picker → ClickUp** pipeline (and similar future pipelines).
-- Trigger **write operations** the MCP can't: mark action items complete, archive them.
-- Download the actual **audio/video media file** (`media_url`, requires a privileged API key).
-- Pull data into **cron jobs / scripts / non-Claude LLMs / automation** outside an MCP-aware chat client.
-- Avoid the always-on MCP context tax during sessions that don't touch Fellow at all.
+- **Recording** — the audio-capture record. Has `transcript`, `ai_notes` (Summary / Action items / Decisions / Topics / Key Moments), `media_url`, `event_call_url`, calendar metadata.
+- **Note** — the human-editable meeting document. Has `content_markdown`, `event_attendees`, and `recording_ids: [...]` — plural, because a recurring meeting's Note can map to many Recordings.
+- **ActionItem** — flat, separate. Has three states (`Incomplete` / `Done` / `Archived`), assignees, `recording_offset`, and a `note_id` pointer back.
 
-**Positioning in docs and SKILL.md:** "Use the MCP when you want to ask questions about your meetings. Use `fellowai` when you want to *do things* with meeting data — export, automate, complete action items, build pipelines."
+For "what did we decide last Tuesday?" the MCP's collapsed view is friendlier. For "every action item the AI detected in any meeting Chris attended, completed in the last 30 days," you want the real model — and the MCP can't express that query.
 
-**One capability we explicitly do not replicate:** semantic search. Faking it client-side (export-everything-then-grep) is a bad lie. If you need search, use the MCP for that one query.
+### Tool-by-tool
+
+The MCP exposes 5 read-only tools:
+
+| MCP tool | CLI equivalent | CLI adds |
+|-|-|-|
+| `get_action_items` | `action-items list/get` | scope/completed/archived/ai_detected filters; status enum visibility |
+| `get_meeting_transcript` | `recordings get/export --with-transcript` | inline `speech_segments`; bulk export across many meetings |
+| `get_meeting_summary` | `recordings get/export --with-ai-notes` | structured sections you can `jq` over |
+| `get_meeting_participants` | `notes get --with-attendees` | exposes `event_attendees: [{email}]` from the Note |
+| `search_meetings` | **— no equivalent —** | (CLI cannot replicate this) |
+
+### Use the MCP when
+
+- You want to ask **natural-language questions** about meetings ("what did we decide about the launch date?", "summarize feedback I gave Jake last month").
+- You need **semantic search across meetings** — the killer feature; the REST API has no search endpoint at all.
+- You're a non-technical teammate who wants Fellow in your AI chat without learning a CLI.
+- You're working inside Claude Desktop, ChatGPT, or Cursor and want one-click access.
+
+### Use the CLI when
+
+- You want to **pipe Fellow data through Unix tools** (`recordings export --with-transcript --to - | llm "..."`, into `jq`, `rg`, scripts).
+- You need to **trigger writes** the MCP can't: mark action items `Done`, archive them.
+- You want to **subscribe to push events** via webhooks (`action_item.assigned`, `action_item.completed`, `ai_note.generated`, `ai_note.shared_to_channel`).
+- You want **filtered, deterministic queries** (date range, channel, title, AI-detected, scope).
+- You want to **bulk-export** transcripts/summaries to disk for offline LLM workflows.
+- You want **audio download** via `media_url` (privileged API key required).
+- You want to **drive the action-items picker → ClickUp** pipeline (or similar future pipelines).
+- You want to access Fellow data from **cron / scripts / non-Claude LLMs** outside an MCP-aware chat client.
+- You want to **avoid the always-on MCP context tax** during Claude Code sessions that don't touch Fellow at all.
+
+### Positioning in docs and SKILL.md
+
+> Use the MCP when you want to **ask questions** about your meetings. Use `fellowai` when you want to **do things** with meeting data — export, automate, complete action items, build pipelines.
+
+### One capability we explicitly do not replicate
+
+**Semantic search.** Faking it client-side (export everything, grep over it) is slow, non-semantic, and a small lie. If you need to find a meeting by content rather than metadata, route that one query to the MCP.
 
 ## Goals
 
