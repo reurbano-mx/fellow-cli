@@ -14,17 +14,39 @@ _SAFE_ID = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 def make_client() -> FellowClient:
-    """Build a FellowClient from saved/env config, or exit with a sentence error."""
+    """Build a FellowClient from saved/env config, or exit with a sentence error.
+
+    Attaches HTTP request/response loggers to stderr when --verbose is set
+    on the parent CLI context.
+    """
     try:
         cfg = load_config()
     except ConfigError as e:
         click.echo(str(e), err=True)
         sys.exit(2)
     try:
-        return FellowClient(subdomain=cfg.subdomain, api_key=cfg.api_key)
+        client = FellowClient(subdomain=cfg.subdomain, api_key=cfg.api_key)
     except ValueError as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
+
+    ctx = click.get_current_context(silent=True)
+    if ctx and ctx.obj and ctx.obj.get("verbose"):
+        def _log_req(req):
+            click.echo(f"→ {req.method} {req.url}", err=True)
+
+        def _log_resp(resp):
+            click.echo(
+                f"← {resp.status_code} {resp.url} "
+                f"({int(resp.headers.get('content-length', 0))} bytes)",
+                err=True,
+            )
+
+        client._http.event_hooks = {
+            "request": [_log_req],
+            "response": [_log_resp],
+        }
+    return client
 
 
 def safe_filename_id(value: str) -> str:

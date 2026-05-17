@@ -13,7 +13,8 @@ from fellowai.config import Config, ConfigError, delete_config, load_config, sav
 
 
 @click.command()
-def login() -> None:
+@click.option("--open-browser", is_flag=True, help="Auto-open the workspace URL in a browser.")
+def login(open_browser: bool) -> None:
     """Configure your Fellow workspace and API key."""
     subdomain = click.prompt("Workspace subdomain", type=str).strip()
     try:
@@ -22,19 +23,20 @@ def login() -> None:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
     url = f"https://{subdomain}.fellow.app/"
-    click.echo(f"Opening {url} ...")
+    click.echo(f"Open {url} in your browser, then:")
     click.echo(
-        "In Fellow: click your workspace name (top left) → "
+        "  click your workspace name (top left) → "
         "User settings → API, MCP & Webhooks → New API key."
     )
     click.echo(
         "Note: a workspace admin must first enable Developer API access "
         "under Workspace settings → Security."
     )
-    try:
-        webbrowser.open(url)
-    except Exception:
-        click.echo("(Couldn't auto-open the browser. Open the URL above manually.)")
+    if open_browser:
+        try:
+            webbrowser.open(url)
+        except Exception:
+            click.echo("(Couldn't auto-open the browser. Open the URL above manually.)")
     api_key = click.prompt("API key", type=str, hide_input=True).strip()
 
     client = FellowClient(subdomain=subdomain, api_key=api_key)
