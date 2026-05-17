@@ -155,9 +155,58 @@ def ai_archive(action_item_id, yes, format_override):
         click.echo(f"✓ Archived: {item.get('text', action_item_id)}")
 
 
+def _prompt_selection(items: list[dict]) -> list[dict] | None:
+    """Open a questionary checkbox prompt; return selected items, or None on cancel."""
+    import questionary
+    choices = [
+        questionary.Choice(
+            title=f"{i['text']}  [{i.get('status', '?')}]",
+            value=i,
+        )
+        for i in items
+    ]
+    answer = questionary.checkbox(
+        "Select action items (space to toggle, enter to confirm)",
+        choices=choices,
+    ).ask()
+    if answer is None:
+        return None
+    return answer
+
+
+@click.command(name="pick")
+@click.option("--scope", type=click.Choice(["mine", "others", "all"]), default="mine")
+@click.option("--completed/--not-completed", "completed", default=False)
+@click.option("--archived/--not-archived", "archived", default=False)
+@click.option("--ai-detected/--not-ai-detected", "ai_detected", default=None)
+@click.option("--limit", type=int, default=50)
+@click.option("--page-size", type=click.IntRange(1, 50), default=20)
+@click.option("--json", "format_override", flag_value="json")
+def ai_pick(scope, completed, archived, ai_detected, limit, page_size, format_override):
+    """Interactively select action items, emit JSON of selections to stdout."""
+    client = _client()
+    filters = _build_filters(scope, completed, archived, ai_detected)
+    try:
+        items = list(client.list_action_items(filters=filters, limit=limit, page_size=page_size))
+    except FellowError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(2)
+
+    if not items:
+        click.echo("No action items to pick from.", err=True)
+        sys.exit(1)
+
+    selected = _prompt_selection(items)
+    if not selected:
+        sys.exit(1)
+
+    emit(selected, shape="list", columns=["id", "text"], format_override="json")
+
+
 def register(group: click.Group) -> None:
     group.add_command(ai_list)
     group.add_command(ai_get)
+    group.add_command(ai_pick)
     group.add_command(ai_complete)
     group.add_command(ai_uncomplete)
     group.add_command(ai_archive)

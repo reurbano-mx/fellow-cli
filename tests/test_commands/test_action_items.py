@@ -115,3 +115,34 @@ def test_archive_with_yes(tmp_path, monkeypatch):
     assert result.exit_code == 0
     assert "Archived" in result.output
     MockClient.return_value.archive_action_item.assert_called_once_with("x")
+
+
+def test_pick_emits_selected_as_json(tmp_path, monkeypatch):
+    _env(monkeypatch, tmp_path)
+    runner = CliRunner()
+    items = [
+        {"id": "a", "text": "First", "status": "Incomplete"},
+        {"id": "b", "text": "Second", "status": "Incomplete"},
+        {"id": "c", "text": "Third", "status": "Incomplete"},
+    ]
+    with patch("fellowai.commands.action_items.FellowClient") as MockClient, \
+         patch("fellowai.commands.action_items._prompt_selection") as MockPrompt:
+        MockClient.return_value.list_action_items.return_value = iter(items)
+        # Simulate user selecting items 0 and 2
+        MockPrompt.return_value = [items[0], items[2]]
+        result = runner.invoke(cli, ["action-items", "pick", "--json"])
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert [i["id"] for i in data] == ["a", "c"]
+
+
+def test_pick_cancel_exits_1(tmp_path, monkeypatch):
+    _env(monkeypatch, tmp_path)
+    runner = CliRunner()
+    items = [{"id": "a", "text": "First", "status": "Incomplete"}]
+    with patch("fellowai.commands.action_items.FellowClient") as MockClient, \
+         patch("fellowai.commands.action_items._prompt_selection") as MockPrompt:
+        MockClient.return_value.list_action_items.return_value = iter(items)
+        MockPrompt.return_value = None  # user pressed q / Ctrl-C
+        result = runner.invoke(cli, ["action-items", "pick"])
+    assert result.exit_code == 1
