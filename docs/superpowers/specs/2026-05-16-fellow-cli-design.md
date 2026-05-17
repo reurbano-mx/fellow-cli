@@ -134,33 +134,119 @@ fellowai install-skill                                # drop SKILL.md into ~/.cl
 
 fellowai recordings   list | get | export
 fellowai notes        list | get | export
-fellowai action-items list | get | pick | complete | archive
+fellowai action-items list | get | pick | complete | uncomplete | archive
 ```
 
-Common flags on all list commands:
+Common pagination flags:
 
-- `--since <relative-or-absolute>` — `7d`, `2026-04-01`, `2w` (single parser; mapped into a `filters` body field)
-- `--limit <n>` — total max records returned across all pages (default 50; the client paginates underneath)
-- `--page-size <n>` — per-page size for the underlying API call (1–50, default 20)
+- `--limit <n>` — total records returned to the user (default 50). The client paginates underneath; user never sees pages.
+- `--page-size <n>` — API page size (1–50, default 20). Tune only for very large `--limit`s.
 
-Resource-specific flags:
+### `recordings list/get/export`
 
-- `recordings list/get/export` accept `--include <fields>` — comma-separated subset of `transcript`, `ai_notes`, `media_url`. `media_url` requires a privileged API key; we'll detect the resulting 403 and produce a sentence error if a non-privileged key requests it.
-- `action-items list` accepts `--assignee <email|me>`, `--scope <mine|others|all>` (maps to the documented `assigned_to_me`/`assigned_to_others` filter).
+Filter flags (mapped to confirmed API filter fields):
 
-`export` for recordings and notes:
+- `--since <relative-or-absolute>` → `created_at_start` (e.g., `7d`, `2026-04-01`)
+- `--until <relative-or-absolute>` → `created_at_end`
+- `--updated-since` → `updated_at_start` (when you want recordings whose notes/transcript were edited recently)
+- `--channel <id>` → `channel_id` (channels are filterable even though there's no `channels list` endpoint)
+- `--title <substring>` → `title`
+- `--event <guid>` → `event_guid` (filter by calendar event)
 
-- `--to <path | ->` — writes to a directory (one file per resource: `<id>.<ext>`) or stdout (`-`)
-- `--format <json|md|both>` — for `--to <path>`: `both` writes `<id>.json` + `<id>.md` per resource. For `--to -`: `both` is rejected (concatenation ambiguous).
-- Markdown rendering for a Recording: title + dates + `transcript` (if included) rendered as `[speaker]: text` lines + `ai_notes` rendered with section headers.
+Include flags (control expensive nested fields, default off):
 
-`action-items complete <id>` and `archive <id>` are the only write commands in v1. They are confirmed-via-prompt by default (`--yes` to skip). Action-item completion is so naturally part of the picker workflow that read-only v1 would leave the picker half-functional.
+- `--with-transcript` → `include.transcript = true`
+- `--with-ai-notes` → `include.ai_notes = true` (the AI summary: key moments, decisions, topics, etc.)
+- `--with-media` → request a `media_url` via top-level `media_url: MediaUrlConfig` body field. **Requires a privileged API key**; a non-privileged key produces a 403 that we map to a sentence error explaining the limitation.
 
-`action-items pick` is the interactive TUI:
+### `notes list/get/export`
+
+Same `--since` / `--until` / `--limit` / `--page-size` flags. Note resource shape and filter list confirmed at implementation time; expected to mirror Recording's filter set.
+
+### `action-items list/get/pick/complete/uncomplete/archive`
+
+Confirmed filter flags (server-side):
+
+- `--scope <mine|others|all>` → `scope: assigned_to_me | assigned_to_others | all` (default `mine`)
+- `--completed / --not-completed` → `completed: true|false`
+- `--archived / --not-archived` → `archived: true|false`
+- `--ai-detected / --not-ai-detected` → `ai_detected: true|false`
+- `--order <newest|oldest|due>` → `order_by: created_at_desc | created_at_asc | due_date`
+
+Client-side filter (no server-side equivalent):
+
+- `--since <relative-or-absolute>` filters the returned page on `created_at` after fetching. Documented limitation: paginates the full set until enough matches are found. Worth flagging to the user; if Fellow ships a date filter later, switch to server-side.
+
+Write commands:
+
+- `complete <id>` → `POST /action_item/{id}/complete` with `{ "completed": true }`
+- `uncomplete <id>` → same endpoint with `{ "completed": false }` (the API endpoint is a toggle; exposing two commands is clearer than `complete --undo`)
+- `archive <id>` → `POST /action_item/{id}/archive` (no body)
+- Both prompt for confirmation by default; `--yes` skips. `--json` prints the updated item.
+
+### `pick` — interactive TUI
+
+`fellowai action-items pick` accepts the same filter flags as `list`, opens a TUI with checkboxes:
+
 - Spacebar toggles selection, arrows navigate, `/` filters by substring
 - Enter confirms — prints selected items as JSON array to stdout, exits 0
 - `q` cancels — exits 1, nothing printed
 - Implementation: `questionary` (cross-platform, no native deps)
+
+### `export` for recordings and notes
+
+- `--to <path | ->` — writes to a directory (one file per resource: `<id>.<ext>`) or stdout (`-`)
+- `--format <json|md|both>` — for `--to <path>`: `both` writes `<id>.json` + `<id>.md` per resource. For `--to -`: `both` is rejected (concatenation ambiguous).
+- Markdown rendering for a Recording: title + dates + `transcript` (if included) as `[speaker]: text` lines + `ai_notes` rendered with section headers.
+
+## Sample session
+
+```
+$ fellowai login
+Workspace subdomain: reurbano
+Opening https://reurbano.fellow.app/settings/api-keys...
+API key: ********************************
+✓ Authenticated as kramer@reurbano.mx
+✓ Saved to ~/.config/fellowai/config.toml
+
+$ fellowai me
+kramer@reurbano.mx  workspace: reurbano  key: ...d7f3 (last 4)
+
+$ fellowai recordings list --since 7d
+ID         TITLE                       STARTED              DURATION
+rec_abc12  Q2 planning                 2026-05-13 09:00     58m
+rec_def34  1:1 with Chris              2026-05-14 14:30     32m
+rec_ghi56  Vendor renewal call         2026-05-15 11:00     47m
+
+$ fellowai recordings export --since 7d --with-transcript --format md --to - | \
+    llm "summarize key decisions and risks from these meetings"
+
+$ fellowai action-items pick --scope mine --not-completed | \
+    jq '.[] | {title, due_date}'
+
+$ fellowai action-items complete ai_xyz789 --yes
+✓ Marked complete: "Email vendor about renewal"
+```
+
+## Acceptance criteria — v1 ships when
+
+1. `fellowai login` / `me` / `logout` work end-to-end against the live API, persisting + reading config across platforms (macOS verified manually, Linux + Windows verified via CI smoke).
+2. `recordings list` / `get` / `export` work with all filter flags above and both `--with-*` include modes (excluding `--with-media`, which needs a privileged key to fully verify).
+3. `notes list` / `get` / `export` work; filter set confirmed against live API.
+4. `action-items list` / `get` / `pick` / `complete` / `uncomplete` / `archive` work end-to-end; `pick` produces composable JSON.
+5. Error UX: all auth/network/rate-limit/bad-ID failures produce sentence-shaped errors, never tracebacks (verified via `respx` mocked tests).
+6. Empty results produce `[]` on stdout when piped, friendly sentence on TTY.
+7. SKILL.md installs to `~/.claude/skills/fellowai/` via `fellowai install-skill` and Claude Code can discover the skill.
+8. Published to PyPI as `fellowai`; `uv tool install fellowai` works on macOS / Linux / Windows.
+9. README has the install/login walkthrough plus three sample pipelines from the Sample Session block.
+
+## Edge-case behaviors
+
+- **Empty results.** Exit 0 in all cases. On TTY: `No recordings in the last 7 days.` When piped: `[]` (or empty markdown). Never a non-zero exit on "nothing to show."
+- **Mid-session 401.** Any API call returning 401 prints the sentence error and exits 2. Never a stack trace. Config is *not* auto-deleted (the user might be on a stale subdomain) — we just point them at `fellowai login`.
+- **Rate limit (429).** Honor `Retry-After` if present; otherwise back off `1s, 2s, 4s` (max 3 retries). After exhaustion, sentence error with the documented per-key limits (3/sec, 10,000/day).
+- **API surface drift.** The client uses Pydantic models with `extra="allow"` so new server fields don't break us. Missing required fields produce a clear `Fellow API returned an unexpected response — run with --debug for details.`
+- **`--limit` vs `--page-size`.** `--limit` is the user contract; `--page-size` is an implementation tuning knob. Default `--page-size 20` matches the API default; users almost never need to set it.
 
 ## Output format rules
 
@@ -241,16 +327,76 @@ No file is sent anywhere except direct API calls to `*.fellow.app`.
 
 ## Agent discoverability
 
-A `SKILL.md` ships inside the package. `fellowai install-skill` copies it into `~/.claude/skills/fellowai/`. The skill teaches Claude Code: which commands exist, when to use `--json`, common pipe patterns (`recordings export --include transcript --to - | llm ...`), error recovery (`fellowai login` on 401).
+A `SKILL.md` ships inside the package. `fellowai install-skill` copies it into `~/.claude/skills/fellowai/`. Draft body:
+
+```markdown
+---
+name: fellowai
+description: Use when accessing Fellow.ai meeting data — recordings,
+  transcripts, AI summaries, notes, action items. Don't use for
+  non-Fellow meeting data. For semantic search across meetings,
+  prefer Fellow's MCP server instead.
+---
+
+# fellowai
+
+CLI for Fellow.ai's developer API. Installed command: `fellowai`.
+Run `fellowai --help` for the current surface.
+
+## When to use this vs Fellow's MCP server
+
+- **MCP**: natural-language questions, semantic search across meetings
+- **This CLI**: scripted exports, pipelines, action-item write ops,
+  audio download, anything outside an MCP-aware chat client
+
+## Common patterns
+
+Pipe recent transcripts to an LLM:
+    fellowai recordings export --since 7d --with-transcript \
+      --format md --to - | <llm command>
+
+Get the AI-generated summary of one meeting as markdown:
+    fellowai recordings get <id> --with-ai-notes --md
+
+Select action items interactively, emit JSON:
+    fellowai action-items pick --scope mine --not-completed
+
+List recordings as JSON (auto when piped):
+    fellowai recordings list --since 7d | jq '.[].title'
+
+Mark an action item complete:
+    fellowai action-items complete <id> --yes
+
+## Output rules
+
+- TTY: pretty tables for lists, markdown for documents
+- Piped: JSON for lists, markdown for documents
+- `--json` and `--md` force a format
+
+## Error recovery
+
+- 401 ("API key isn't valid") → run `fellowai login`
+- 403 on `--with-media` → privileged API key required; ask a workspace
+  admin
+- 429 → wait; rate limits are 3/sec, 10,000/day per key
+- Empty result is exit 0, not an error
+
+## What this CLI can't do
+
+- Search meetings (use the MCP)
+- List channels or participants (no REST endpoint)
+- Webhook management (deferred in v1)
+- Delete recordings/notes (deferred in v1)
+```
 
 ## Open questions to resolve during implementation
 
 These need a real API key to confirm; none block the design:
 
-1. Exact request-body field name for `--since` filtering on each list endpoint (likely `started_after`/`started_before` or similar on Recording).
-2. Whether the privileged-vs-non-privileged distinction is determined by the key itself (admin-issued vs user-issued) or by some scope on the request.
-3. The exact body parameters for `mark_action_item_complete` and `archive_action_item` (probably just an ID; possibly additional flags).
-4. Whether `--include transcript` returns transcript inline or as a sub-URL that needs a second fetch.
+1. Note resource filter set (expected to mirror Recording's: `created_at_*`, `updated_at_*`, `channel_id`, `title`; confirm at implementation).
+2. Whether the privileged-key distinction is a property of the key itself or a request-time scope. Affects only the `--with-media` flag.
+3. Whether `--with-transcript` returns transcript text inline on the Recording response or as a sub-URL that needs a second fetch.
+4. Exact shape of the `MediaUrlConfig` body parameter (expiration window).
 
 ## Out of scope, captured for later
 
