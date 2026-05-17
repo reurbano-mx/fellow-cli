@@ -124,3 +124,19 @@ def test_export_both_to_stdout_rejected(tmp_path, monkeypatch):
     )
     assert result.exit_code == 1
     assert "both" in result.output.lower()
+
+
+def test_export_rejects_path_traversal_id(tmp_path, monkeypatch):
+    _env(monkeypatch, tmp_path)
+    outdir = tmp_path / "out"
+    runner = CliRunner()
+    with patch("fellowai.commands.FellowClient") as MockClient:
+        MockClient.return_value.list_recordings.return_value = iter([
+            {"id": "../escape", "title": "T"},
+        ])
+        result = runner.invoke(
+            cli, ["recordings", "export", "--format", "json", "--to", str(outdir)]
+        )
+    assert result.exit_code != 0
+    assert not (tmp_path / "escape.json").exists()
+    assert "unsafe resource id" in result.output.lower() or "refusing" in result.output.lower()

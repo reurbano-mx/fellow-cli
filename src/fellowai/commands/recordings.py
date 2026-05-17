@@ -10,7 +10,7 @@ from typing import Any
 import click
 
 from fellowai.client import FellowError
-from fellowai.commands import make_client as _client
+from fellowai.commands import make_client as _client, safe_filename_id
 from fellowai.output import emit, render_recording_markdown
 from fellowai.time_parse import parse_since
 
@@ -178,12 +178,16 @@ def recordings_export(
     else:
         outdir = Path(destination)
         outdir.mkdir(parents=True, exist_ok=True)
-        for rec in items:
-            rec_id = rec["id"]
-            if fmt in ("json", "both"):
-                (outdir / f"{rec_id}.json").write_text(json.dumps(rec, default=str))
-            if fmt in ("md", "both"):
-                (outdir / f"{rec_id}.md").write_text(render_recording_markdown(rec))
+        try:
+            for rec in items:
+                rec_id = safe_filename_id(rec["id"])
+                if fmt in ("json", "both"):
+                    (outdir / f"{rec_id}.json").write_text(json.dumps(rec, default=str))
+                if fmt in ("md", "both"):
+                    (outdir / f"{rec_id}.md").write_text(render_recording_markdown(rec))
+        except ValueError as e:
+            from fellowai.errors import handle
+            handle(e)
 
 
 def _write_stream(stream, items: list[dict], fmt: str) -> None:

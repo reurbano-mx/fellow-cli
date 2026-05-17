@@ -8,7 +8,7 @@ from pathlib import Path
 
 import click
 
-from fellowai.client import AuthError, FellowClient, FellowError
+from fellowai.client import AuthError, FellowClient, FellowError, _validate_subdomain
 from fellowai.config import Config, ConfigError, delete_config, load_config, save_config
 
 
@@ -16,6 +16,11 @@ from fellowai.config import Config, ConfigError, delete_config, load_config, sav
 def login() -> None:
     """Configure your Fellow workspace and API key."""
     subdomain = click.prompt("Workspace subdomain", type=str).strip()
+    try:
+        _validate_subdomain(subdomain)
+    except ValueError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
     url = f"https://{subdomain}.fellow.app/"
     click.echo(f"Opening {url} ...")
     click.echo(
@@ -71,7 +76,11 @@ def me() -> None:
         click.echo(str(e), err=True)
         sys.exit(2)
 
-    client = FellowClient(subdomain=cfg.subdomain, api_key=cfg.api_key)
+    try:
+        client = FellowClient(subdomain=cfg.subdomain, api_key=cfg.api_key)
+    except ValueError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
     try:
         m = client.get_me()
     except FellowError as e:

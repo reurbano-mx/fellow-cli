@@ -315,3 +315,21 @@ def test_network_error_maps_to_NetworkError():
     )
     with pytest.raises(NetworkError, match="Couldn't reach"):
         _client().get_me()
+
+
+def test_subdomain_validation_rejects_paths():
+    import pytest
+    with pytest.raises(ValueError, match="Invalid workspace subdomain"):
+        FellowClient(subdomain="evil.com/", api_key="k")
+    with pytest.raises(ValueError, match="Invalid workspace subdomain"):
+        FellowClient(subdomain="../etc", api_key="k")
+    with pytest.raises(ValueError, match="Invalid workspace subdomain"):
+        FellowClient(subdomain="a@b", api_key="k")
+    with pytest.raises(ValueError, match="Invalid workspace subdomain"):
+        FellowClient(subdomain="", api_key="k")
+
+
+def test_subdomain_validation_accepts_dns_labels():
+    # No exception
+    FellowClient(subdomain="reurbano", api_key="k")
+    FellowClient(subdomain="my-workspace-123", api_key="k")

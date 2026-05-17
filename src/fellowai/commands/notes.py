@@ -10,7 +10,7 @@ from typing import Any
 import click
 
 from fellowai.client import FellowError
-from fellowai.commands import make_client as _client
+from fellowai.commands import make_client as _client, safe_filename_id
 from fellowai.output import emit, render_note_markdown
 from fellowai.time_parse import parse_since
 
@@ -116,12 +116,16 @@ def notes_export(since, until, with_content, with_attendees, limit, page_size, f
 
     outdir = Path(destination)
     outdir.mkdir(parents=True, exist_ok=True)
-    for n in items:
-        nid = n["id"]
-        if fmt in ("json", "both"):
-            (outdir / f"{nid}.json").write_text(json.dumps(n, default=str))
-        if fmt in ("md", "both"):
-            (outdir / f"{nid}.md").write_text(render_note_markdown(n))
+    try:
+        for n in items:
+            nid = safe_filename_id(n["id"])
+            if fmt in ("json", "both"):
+                (outdir / f"{nid}.json").write_text(json.dumps(n, default=str))
+            if fmt in ("md", "both"):
+                (outdir / f"{nid}.md").write_text(render_note_markdown(n))
+    except ValueError as e:
+        from fellowai.errors import handle
+        handle(e)
 
 
 def register(group: click.Group) -> None:

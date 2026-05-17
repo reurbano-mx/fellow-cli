@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from typing import Any, Iterator
 
@@ -62,10 +63,27 @@ def _validate_keys(value: dict | None, allowed: frozenset[str], kind: str) -> No
         raise ValueError(f"Unknown {kind}: {sorted(bad)}. Allowed: {sorted(allowed)}.")
 
 
+_SUBDOMAIN_RE = re.compile(r"^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$")
+
+
+def _validate_subdomain(subdomain: str) -> str:
+    """Reject anything that isn't a single DNS-safe label.
+
+    Defends against malformed input being interpolated into URLs
+    (e.g. 'evil.com/' or 'foo@bar') and the browser-open helper.
+    """
+    if not isinstance(subdomain, str) or not _SUBDOMAIN_RE.match(subdomain):
+        raise ValueError(
+            f"Invalid workspace subdomain: {subdomain!r}. "
+            "Use only letters, digits, and hyphens (e.g. 'reurbano')."
+        )
+    return subdomain
+
+
 class FellowClient:
     def __init__(self, *, subdomain: str, api_key: str, timeout: float = 30.0) -> None:
-        self._subdomain = subdomain
-        self._base = f"https://{subdomain}.fellow.app/api/v1"
+        self._subdomain = _validate_subdomain(subdomain)
+        self._base = f"https://{self._subdomain}.fellow.app/api/v1"
         self._http = httpx.Client(
             headers={"X-API-KEY": api_key, "Content-Type": "application/json"},
             timeout=timeout,
