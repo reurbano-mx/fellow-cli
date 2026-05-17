@@ -7,12 +7,35 @@
 
 ## Problem
 
-Reurbano uses Fellow.ai for meeting recordings, transcripts, and action items. The official Fellow MCP server is available but has two problems:
+Reurbano uses Fellow.ai for meeting recordings, transcripts, and action items. The official Fellow MCP server (hosted at `https://fellow.app/mcp`) is available but has two problems:
 
 1. **Context tax.** MCP tool definitions stay loaded every turn. A permanent token cost on every Claude Code session, whether or not Fellow is used.
-2. **Surface limits.** The MCP exposes a fixed shape; we can't compose its outputs cleanly with Unix pipes, can't batch-export, can't drive an interactive picker.
+2. **Surface limits.** The MCP exposes a fixed read-only shape; we can't compose its outputs cleanly with Unix pipes, can't batch-export, can't drive an interactive picker, can't trigger write operations.
 
 A CLI fixes both. It costs zero permanent context (the agent reads `--help` only when needed), it composes with standard tools, and we control the surface.
+
+## Relationship to the Fellow MCP
+
+The CLI does **not** replace the MCP. They serve different jobs and are intended to coexist.
+
+**The Fellow MCP (5 read-only tools): `get_action_items`, `get_meeting_participants`, `get_meeting_summary`, `get_meeting_transcript`, `search_meetings`.**
+
+**Use the MCP when you want to:**
+- Ask natural-language questions about meetings ("what did we decide about the launch date?", "summarize feedback I gave Jake last month").
+- Do **semantic search across meetings** — this is the MCP's killer feature; the public REST API has no equivalent search endpoint.
+- Work inside a conversational AI client (Claude Desktop, ChatGPT, Cursor) without building anything.
+
+**Use this CLI when you want to:**
+- Pipe Fellow data through Unix tools (`recordings export --include transcript --to - | llm "..."`, into `jq`, `rg`, scripts).
+- Drive the **action-items picker → ClickUp** pipeline (and similar future pipelines).
+- Trigger **write operations** the MCP can't: mark action items complete, archive them.
+- Download the actual **audio/video media file** (`media_url`, requires a privileged API key).
+- Pull data into **cron jobs / scripts / non-Claude LLMs / automation** outside an MCP-aware chat client.
+- Avoid the always-on MCP context tax during sessions that don't touch Fellow at all.
+
+**Positioning in docs and SKILL.md:** "Use the MCP when you want to ask questions about your meetings. Use `fellowai` when you want to *do things* with meeting data — export, automate, complete action items, build pipelines."
+
+**One capability we explicitly do not replicate:** semantic search. Faking it client-side (export-everything-then-grep) is a bad lie. If you need search, use the MCP for that one query.
 
 ## Goals
 
