@@ -75,7 +75,7 @@ def ai_get(action_item_id, format_override):
     client = _client()
     try:
         item = client.get_action_item(action_item_id)
-    except FellowError as e:
+    except (FellowError, ValueError) as e:
         from fellowai.errors import handle
         handle(e)
     emit(item, shape="card",
@@ -101,7 +101,7 @@ def ai_complete(action_item_id, yes, format_override):
     client = _client()
     try:
         item = client.set_action_item_completed(action_item_id, True)
-    except FellowError as e:
+    except (FellowError, ValueError) as e:
         from fellowai.errors import handle
         handle(e)
     if format_override == "json":
@@ -120,7 +120,7 @@ def ai_uncomplete(action_item_id, yes, format_override):
     client = _client()
     try:
         item = client.set_action_item_completed(action_item_id, False)
-    except FellowError as e:
+    except (FellowError, ValueError) as e:
         from fellowai.errors import handle
         handle(e)
     if format_override == "json":
@@ -142,7 +142,7 @@ def ai_archive(action_item_id, yes, format_override):
     client = _client()
     try:
         item = client.archive_action_item(action_item_id)
-    except FellowError as e:
+    except (FellowError, ValueError) as e:
         from fellowai.errors import handle
         handle(e)
     if format_override == "json":

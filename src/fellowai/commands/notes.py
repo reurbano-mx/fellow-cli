@@ -69,7 +69,7 @@ def notes_get(note_id, format_override):
     client = _client()
     try:
         note = client.get_note(note_id)
-    except FellowError as e:
+    except (FellowError, ValueError) as e:
         from fellowai.errors import handle
         handle(e)
     emit(note, shape="document",

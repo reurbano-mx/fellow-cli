@@ -64,6 +64,7 @@ def _validate_keys(value: dict | None, allowed: frozenset[str], kind: str) -> No
 
 
 _SUBDOMAIN_RE = re.compile(r"^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$")
+_RESOURCE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 
 def _validate_subdomain(subdomain: str) -> str:
@@ -78,6 +79,22 @@ def _validate_subdomain(subdomain: str) -> str:
             "Use only letters, digits, and hyphens (e.g. 'reurbano')."
         )
     return subdomain
+
+
+def _validate_resource_id(resource_id: str) -> str:
+    """Reject ids that aren't pure alphanumerics before URL interpolation.
+
+    httpx (via urllib) normalizes '..' path segments client-side, so an id
+    like '../me' would silently redirect an authenticated request to a
+    different endpoint. Validate at the HTTP boundary so every caller
+    (CLI, library, future MCP wrapper) gets the same guarantee.
+    """
+    if not isinstance(resource_id, str) or not _RESOURCE_ID_RE.match(resource_id):
+        raise ValueError(
+            f"Invalid resource id: {resource_id!r}. "
+            "Ids must be 1–64 chars of letters, digits, '_' or '-'."
+        )
+    return resource_id
 
 
 class FellowClient:
@@ -165,7 +182,8 @@ class FellowClient:
         return self._request("GET", "/me")
 
     def get_recording(self, recording_id: str) -> dict:
-        return self._request("GET", f"/recording/{recording_id}")["recording"]
+        rid = _validate_resource_id(recording_id)
+        return self._request("GET", f"/recording/{rid}")["recording"]
 
     def list_recordings(
         self,
@@ -249,7 +267,8 @@ class FellowClient:
         )
 
     def get_note(self, note_id: str) -> dict:
-        return self._request("GET", f"/note/{note_id}")["note"]
+        nid = _validate_resource_id(note_id)
+        return self._request("GET", f"/note/{nid}")["note"]
 
     def list_action_items(
         self,
@@ -275,14 +294,17 @@ class FellowClient:
         )
 
     def get_action_item(self, action_item_id: str) -> dict:
-        return self._request("GET", f"/action_item/{action_item_id}")["action_item"]
+        aid = _validate_resource_id(action_item_id)
+        return self._request("GET", f"/action_item/{aid}")["action_item"]
 
     def set_action_item_completed(self, action_item_id: str, completed: bool) -> dict:
+        aid = _validate_resource_id(action_item_id)
         return self._request(
             "POST",
-            f"/action_item/{action_item_id}/complete",
+            f"/action_item/{aid}/complete",
             json_body={"completed": completed},
         )["action_item"]
 
     def archive_action_item(self, action_item_id: str) -> dict:
-        return self._request("POST", f"/action_item/{action_item_id}/archive", json_body={})["action_item"]
+        aid = _validate_resource_id(action_item_id)
+        return self._request("POST", f"/action_item/{aid}/archive", json_body={})["action_item"]

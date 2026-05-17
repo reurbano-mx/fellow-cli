@@ -40,10 +40,31 @@ def _config_path() -> Path:
 def save_config(cfg: Config) -> None:
     path = _config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("wb") as f:
-        tomli_w.dump({"subdomain": cfg.subdomain, "api_key": cfg.api_key}, f)
+    data = {"subdomain": cfg.subdomain, "api_key": cfg.api_key}
+
     if os.name == "posix":
-        path.chmod(0o600)
+        # Write to a sibling temp file created with 0o600 from the start,
+        # then atomically rename over the final path. Prevents the API key
+        # from ever existing on disk with umask-permissive permissions.
+        tmp_path = path.with_name(path.name + ".tmp")
+        fd = os.open(
+            tmp_path,
+            os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
+            0o600,
+        )
+        try:
+            with os.fdopen(fd, "wb") as f:
+                tomli_w.dump(data, f)
+            os.replace(tmp_path, path)
+        except BaseException:
+            try:
+                os.unlink(tmp_path)
+            except FileNotFoundError:
+                pass
+            raise
+    else:
+        with path.open("wb") as f:
+            tomli_w.dump(data, f)
 
 
 def load_config() -> Config:

@@ -333,3 +333,30 @@ def test_subdomain_validation_accepts_dns_labels():
     # No exception
     FellowClient(subdomain="reurbano", api_key="k")
     FellowClient(subdomain="my-workspace-123", api_key="k")
+
+
+def test_resource_id_validation_blocks_path_traversal():
+    import pytest
+    client = FellowClient(subdomain="test", api_key="k")
+    with pytest.raises(ValueError, match="Invalid resource id"):
+        client.get_recording("../me")
+    with pytest.raises(ValueError, match="Invalid resource id"):
+        client.get_note("a/b")
+    with pytest.raises(ValueError, match="Invalid resource id"):
+        client.get_action_item("?x=1")
+    with pytest.raises(ValueError, match="Invalid resource id"):
+        client.archive_action_item("../../../etc/passwd")
+    with pytest.raises(ValueError, match="Invalid resource id"):
+        client.set_action_item_completed("a#frag", True)
+
+
+def test_resource_id_validation_accepts_real_ids():
+    import respx
+    from httpx import Response
+    with respx.mock:
+        respx.get("https://test.fellow.app/api/v1/recording/iZhUzNG7XN").mock(
+            return_value=Response(200, json={"recording": {"id": "iZhUzNG7XN"}})
+        )
+        client = FellowClient(subdomain="test", api_key="k")
+        rec = client.get_recording("iZhUzNG7XN")
+        assert rec["id"] == "iZhUzNG7XN"

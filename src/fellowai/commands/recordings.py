@@ -116,7 +116,7 @@ def recordings_get(
     client = _client()
     try:
         rec = client.get_recording(recording_id)
-    except FellowError as e:
+    except (FellowError, ValueError) as e:
         from fellowai.errors import handle
         handle(e)
 
