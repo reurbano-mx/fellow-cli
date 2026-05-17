@@ -24,8 +24,12 @@ uv tool install --prerelease=allow fellowai
 
 ## Quick start
 
+> **⚠️ Run `fellowai login` in a plain terminal — not inside an AI agent.**
+>
+> `login` is the one command where you **type your API key into a prompt**. If you run it inside Claude Code, Cursor, or any AI chat, the assistant sees your keystrokes. Do it once in a regular terminal. Every other `fellowai` command is safe inside an AI agent — the key is read from your 0o600 config file and sent only in the `X-API-KEY` HTTP header (never in URLs, output, or tracebacks).
+
 ```bash
-fellowai login        # prompts for workspace subdomain and API key
+fellowai login        # prompts for workspace subdomain and API key (plain terminal!)
 fellowai me           # confirms you're authenticated
 fellowai recordings list --since 7d
 ```
@@ -35,10 +39,6 @@ To create an API key: in Fellow, click your workspace name (top left) → **User
 `fellowai login` prints the workspace URL but does not auto-open your browser. Pass `--open-browser` if you want it to.
 
 You can also set `FELLOWAI_SUBDOMAIN` and `FELLOWAI_API_KEY` as environment variables (both required together) to bypass the config file — useful for CI.
-
-### ⚠️ Run `fellowai login` outside any AI agent
-
-`login` is the one command where you **type your API key**. If you run it inside Claude Code, Cursor, or any AI chat, the assistant sees your keystrokes. Run `fellowai login` once in a plain terminal. Every other `fellowai` command is safe to run inside an AI agent — the key is read from your 0o600 config file and sent only in the `X-API-KEY` HTTP header (never in URLs, output, or tracebacks).
 
 ## Three sample pipelines
 
