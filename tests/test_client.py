@@ -155,3 +155,38 @@ def test_subdomain_returns_html_raises_auth_error():
     client = FellowClient(subdomain="wrong", api_key="x")
     with pytest.raises(AuthError, match="subdomain"):
         client.get_me()
+
+
+@respx.mock
+def test_retries_on_429_then_succeeds(monkeypatch: pytest.MonkeyPatch):
+    sleeps: list[float] = []
+    monkeypatch.setattr("fellowai.client.time.sleep", lambda s: sleeps.append(s))
+    respx.get("https://test.fellow.app/api/v1/me").mock(side_effect=[
+        Response(429, json={"detail": "rate_limited"}, headers={"Retry-After": "1"}),
+        Response(200, json={"user": {}, "workspace": {}}),
+    ])
+    _client().get_me()
+    assert sleeps == [1.0]
+
+
+@respx.mock
+def test_retries_on_500_with_exponential_backoff(monkeypatch: pytest.MonkeyPatch):
+    sleeps: list[float] = []
+    monkeypatch.setattr("fellowai.client.time.sleep", lambda s: sleeps.append(s))
+    respx.get("https://test.fellow.app/api/v1/me").mock(side_effect=[
+        Response(500, text="bad"),
+        Response(500, text="bad"),
+        Response(200, json={"user": {}, "workspace": {}}),
+    ])
+    _client().get_me()
+    assert sleeps == [1.0, 2.0]
+
+
+@respx.mock
+def test_gives_up_after_max_retries(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr("fellowai.client.time.sleep", lambda s: None)
+    respx.get("https://test.fellow.app/api/v1/me").mock(
+        return_value=Response(500, text="bad"),
+    )
+    with pytest.raises(ServerError):
+        _client().get_me()

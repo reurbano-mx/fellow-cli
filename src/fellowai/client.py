@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from typing import Any, Iterator
 
 import httpx
@@ -41,9 +42,24 @@ class FellowClient:
             timeout=timeout,
         )
 
+    _MAX_RETRIES = 3
+
     def _request(self, method: str, path: str, *, json_body: dict | None = None) -> Any:
         url = f"{self._base}{path}"
-        resp = self._http.request(method, url, json=json_body)
+        attempt = 0
+        while True:
+            resp = self._http.request(method, url, json=json_body)
+            if resp.status_code == 429 and attempt < self._MAX_RETRIES:
+                wait = float(resp.headers.get("Retry-After", 2**attempt))
+                time.sleep(wait)
+                attempt += 1
+                continue
+            if 500 <= resp.status_code < 600 and attempt < self._MAX_RETRIES:
+                time.sleep(2**attempt)
+                attempt += 1
+                continue
+            break
+
         self._raise_for_status(resp)
         try:
             return resp.json()
