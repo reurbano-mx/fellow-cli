@@ -66,8 +66,8 @@ def me() -> None:
     try:
         m = client.get_me()
     except FellowError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(2)
+        from fellowai.errors import handle
+        handle(e)
 
     user = m.get("user", {})
     ws = m.get("workspace", {})

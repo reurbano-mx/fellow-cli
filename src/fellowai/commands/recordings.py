@@ -94,8 +94,8 @@ def recordings_list(
             limit=limit, page_size=page_size,
         ))
     except FellowError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(2)
+        from fellowai.errors import handle
+        handle(e)
 
     _warn_media_null(items, with_media)
     emit(items, shape="list",
@@ -121,8 +121,8 @@ def recordings_get(
     try:
         rec = client.get_recording(recording_id)
     except FellowError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(2)
+        from fellowai.errors import handle
+        handle(e)
 
     if no_transcript:
         rec["transcript"] = None
@@ -170,8 +170,8 @@ def recordings_export(
             limit=limit, page_size=page_size,
         ))
     except FellowError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(2)
+        from fellowai.errors import handle
+        handle(e)
 
     _warn_media_null(items, with_media)
 

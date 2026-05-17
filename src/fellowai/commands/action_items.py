@@ -58,8 +58,8 @@ def ai_list(scope, completed, archived, ai_detected, order, since, limit, page_s
             filters=filters, order_by=order_by, limit=limit, page_size=page_size,
         ))
     except FellowError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(2)
+        from fellowai.errors import handle
+        handle(e)
 
     if since:
         cutoff = parse_since(since)
@@ -80,8 +80,8 @@ def ai_get(action_item_id, format_override):
     try:
         item = client.get_action_item(action_item_id)
     except FellowError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(2)
+        from fellowai.errors import handle
+        handle(e)
     emit(item, shape="card",
          card_renderer=render_action_item_card,
          format_override=format_override)
@@ -106,8 +106,8 @@ def ai_complete(action_item_id, yes, format_override):
     try:
         item = client.set_action_item_completed(action_item_id, True)
     except FellowError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(2)
+        from fellowai.errors import handle
+        handle(e)
     if format_override == "json":
         emit(item, shape="card", format_override="json")
     else:
@@ -125,8 +125,8 @@ def ai_uncomplete(action_item_id, yes, format_override):
     try:
         item = client.set_action_item_completed(action_item_id, False)
     except FellowError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(2)
+        from fellowai.errors import handle
+        handle(e)
     if format_override == "json":
         emit(item, shape="card", format_override="json")
     else:
@@ -147,8 +147,8 @@ def ai_archive(action_item_id, yes, format_override):
     try:
         item = client.archive_action_item(action_item_id)
     except FellowError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(2)
+        from fellowai.errors import handle
+        handle(e)
     if format_override == "json":
         emit(item, shape="card", format_override="json")
     else:
@@ -189,8 +189,8 @@ def ai_pick(scope, completed, archived, ai_detected, limit, page_size, format_ov
     try:
         items = list(client.list_action_items(filters=filters, limit=limit, page_size=page_size))
     except FellowError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(2)
+        from fellowai.errors import handle
+        handle(e)
 
     if not items:
         click.echo("No action items to pick from.", err=True)

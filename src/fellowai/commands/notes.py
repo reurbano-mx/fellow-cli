@@ -61,8 +61,8 @@ def notes_list(since, until, with_content, with_attendees, limit, page_size, for
             limit=limit, page_size=page_size,
         ))
     except FellowError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(2)
+        from fellowai.errors import handle
+        handle(e)
     emit(items, shape="list",
          columns=["id", "title", "event_start"],
          format_override=format_override,
@@ -79,8 +79,8 @@ def notes_get(note_id, format_override):
     try:
         note = client.get_note(note_id)
     except FellowError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(2)
+        from fellowai.errors import handle
+        handle(e)
     emit(note, shape="document",
          markdown_renderer=render_note_markdown,
          format_override=format_override or "md")
@@ -110,8 +110,8 @@ def notes_export(since, until, with_content, with_attendees, limit, page_size, f
             limit=limit, page_size=page_size,
         ))
     except FellowError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(2)
+        from fellowai.errors import handle
+        handle(e)
 
     if destination == "-":
         if fmt == "json":
