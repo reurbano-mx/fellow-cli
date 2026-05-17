@@ -1,6 +1,7 @@
 import click
 
 from fellowai import __version__
+from fellowai.commands.auth import login, logout, me
 
 
 @click.group()
@@ -9,22 +10,9 @@ def cli() -> None:
     """Unofficial CLI for Fellow.ai's developer API."""
 
 
-@cli.command()
-def login() -> None:
-    """Configure workspace and API key."""
-    raise NotImplementedError
-
-
-@cli.command()
-def logout() -> None:
-    """Delete stored configuration."""
-    raise NotImplementedError
-
-
-@cli.command()
-def me() -> None:
-    """Show authenticated identity and workspace."""
-    raise NotImplementedError
+cli.add_command(login)
+cli.add_command(logout)
+cli.add_command(me)
 
 
 @cli.group()
