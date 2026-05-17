@@ -155,6 +155,10 @@ def ai_archive(action_item_id, yes, format_override):
         click.echo(f"✓ Archived: {item.get('text', action_item_id)}")
 
 
+def _is_tty() -> bool:
+    return sys.stdin.isatty()
+
+
 def _prompt_selection(items: list[dict]) -> list[dict] | None:
     """Open a questionary checkbox prompt; return selected items, or None on cancel."""
     import questionary
@@ -184,6 +188,14 @@ def _prompt_selection(items: list[dict]) -> list[dict] | None:
 @click.option("--json", "format_override", flag_value="json")
 def ai_pick(scope, completed, archived, ai_detected, limit, page_size, format_override):
     """Interactively select action items, emit JSON of selections to stdout."""
+    if not _is_tty():
+        click.echo(
+            "Action item picker requires a terminal. Run interactively, "
+            "or use 'action-items list --json' to get JSON without selection.",
+            err=True,
+        )
+        sys.exit(1)
+
     client = _client()
     filters = _build_filters(scope, completed, archived, ai_detected)
     try:
