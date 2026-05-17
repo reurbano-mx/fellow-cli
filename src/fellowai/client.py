@@ -33,6 +33,31 @@ class ServerError(FellowError):
     """5xx from API."""
 
 
+ALLOWED_RECORDING_FILTERS: frozenset[str] = frozenset({
+    "event_guid", "created_at_start", "created_at_end",
+    "updated_at_start", "updated_at_end", "channel_id", "title",
+})
+ALLOWED_RECORDING_INCLUDES: frozenset[str] = frozenset({
+    "transcript", "ai_notes", "media_url",
+})
+ALLOWED_NOTE_FILTERS: frozenset[str] = frozenset({"created_at_start", "created_at_end"})
+ALLOWED_NOTE_INCLUDES: frozenset[str] = frozenset({"content_markdown", "event_attendees"})
+ALLOWED_ACTION_ITEM_FILTERS: frozenset[str] = frozenset({
+    "scope", "completed", "archived", "ai_detected", "ai_suggestion_accepted_by_user",
+})
+ALLOWED_ACTION_ITEM_ORDER_BY: frozenset[str] = frozenset({
+    "created_at_desc", "created_at_asc", "due_date",
+})
+
+
+def _validate_keys(value: dict | None, allowed: frozenset[str], kind: str) -> None:
+    if not value:
+        return
+    bad = set(value.keys()) - allowed
+    if bad:
+        raise ValueError(f"Unknown {kind}: {sorted(bad)}. Allowed: {sorted(allowed)}.")
+
+
 class FellowClient:
     def __init__(self, *, subdomain: str, api_key: str, timeout: float = 30.0) -> None:
         self._subdomain = subdomain
@@ -112,7 +137,7 @@ class FellowClient:
         return self._request("GET", "/me")
 
     def get_recording(self, recording_id: str) -> dict:
-        return self._request("GET", f"/recording/{recording_id}")
+        return self._request("GET", f"/recording/{recording_id}")["recording"]
 
     def list_recordings(
         self,
@@ -124,6 +149,8 @@ class FellowClient:
         limit: int | None = None,
         page_size: int = 20,
     ) -> Iterator[dict]:
+        _validate_keys(filters, ALLOWED_RECORDING_FILTERS, "filter")
+        _validate_keys(include, ALLOWED_RECORDING_INCLUDES, "include")
         return self._paginate(
             "/recordings",
             response_key="recordings",
@@ -173,3 +200,61 @@ class FellowClient:
             cursor = page["page_info"]["cursor"]
             if cursor is None:
                 return
+
+    def list_notes(
+        self,
+        *,
+        filters: dict | None = None,
+        include: dict | None = None,
+        limit: int | None = None,
+        page_size: int = 20,
+    ) -> Iterator[dict]:
+        _validate_keys(filters, ALLOWED_NOTE_FILTERS, "filter")
+        _validate_keys(include, ALLOWED_NOTE_INCLUDES, "include")
+        return self._paginate(
+            "/notes",
+            response_key="notes",
+            filters=filters,
+            include=include,
+            limit=limit,
+            page_size=page_size,
+        )
+
+    def get_note(self, note_id: str) -> dict:
+        return self._request("GET", f"/note/{note_id}")["note"]
+
+    def list_action_items(
+        self,
+        *,
+        filters: dict | None = None,
+        order_by: str | None = None,
+        limit: int | None = None,
+        page_size: int = 20,
+    ) -> Iterator[dict]:
+        _validate_keys(filters, ALLOWED_ACTION_ITEM_FILTERS, "filter")
+        if order_by is not None and order_by not in ALLOWED_ACTION_ITEM_ORDER_BY:
+            raise ValueError(
+                f"Unknown order_by: {order_by!r}. Allowed: {sorted(ALLOWED_ACTION_ITEM_ORDER_BY)}."
+            )
+        return self._paginate(
+            "/action_items",
+            response_key="action_items",
+            filters=filters,
+            include=None,
+            order_by=order_by,
+            limit=limit,
+            page_size=page_size,
+        )
+
+    def get_action_item(self, action_item_id: str) -> dict:
+        return self._request("GET", f"/action_item/{action_item_id}")["action_item"]
+
+    def set_action_item_completed(self, action_item_id: str, completed: bool) -> dict:
+        return self._request(
+            "POST",
+            f"/action_item/{action_item_id}/complete",
+            json_body={"completed": completed},
+        )["action_item"]
+
+    def archive_action_item(self, action_item_id: str) -> dict:
+        return self._request("POST", f"/action_item/{action_item_id}/archive", json_body={})["action_item"]

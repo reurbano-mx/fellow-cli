@@ -1,3 +1,5 @@
+import json
+
 import pytest
 import respx
 from httpx import Response
@@ -190,3 +192,115 @@ def test_gives_up_after_max_retries(monkeypatch: pytest.MonkeyPatch):
     )
     with pytest.raises(ServerError):
         _client().get_me()
+
+
+# Filter/include whitelists
+
+ALLOWED_RECORDING_FILTERS = {
+    "event_guid", "created_at_start", "created_at_end",
+    "updated_at_start", "updated_at_end", "channel_id", "title",
+}
+ALLOWED_RECORDING_INCLUDES = {"transcript", "ai_notes", "media_url"}
+ALLOWED_ACTION_ITEM_FILTERS = {
+    "scope", "completed", "archived", "ai_detected", "ai_suggestion_accepted_by_user",
+}
+
+
+def test_rejects_unknown_recording_filter():
+    with pytest.raises(ValueError, match="Unknown filter"):
+        list(_client().list_recordings(filters={"titel": "x"}))
+
+
+def test_rejects_unknown_recording_include():
+    with pytest.raises(ValueError, match="Unknown include"):
+        list(_client().list_recordings(include={"transcrip": True}))
+
+
+def test_rejects_unknown_action_item_filter():
+    with pytest.raises(ValueError, match="Unknown filter"):
+        list(_client().list_action_items(filters={"compleeted": True}))
+
+
+@respx.mock
+def test_list_notes():
+    respx.post("https://test.fellow.app/api/v1/notes").mock(
+        return_value=Response(200, json={
+            "notes": {
+                "page_info": {"cursor": None, "page_size": 20},
+                "data": [{"id": "n1", "title": "T"}],
+            }
+        }),
+    )
+    items = list(_client().list_notes())
+    assert items == [{"id": "n1", "title": "T"}]
+
+
+@respx.mock
+def test_get_note():
+    respx.get("https://test.fellow.app/api/v1/note/abc").mock(
+        return_value=Response(200, json={"note": {"id": "abc"}})
+    )
+    note = _client().get_note("abc")
+    assert note["id"] == "abc"
+
+
+@respx.mock
+def test_list_action_items_sends_filters_and_order():
+    route = respx.post("https://test.fellow.app/api/v1/action_items").mock(
+        return_value=Response(200, json={
+            "action_items": {
+                "page_info": {"cursor": None, "page_size": 20},
+                "data": [],
+            }
+        }),
+    )
+    list(_client().list_action_items(
+        filters={"scope": "assigned_to_me", "completed": False},
+        order_by="due_date",
+    ))
+    sent = json.loads(route.calls[0].request.read())
+    assert sent["filters"] == {"scope": "assigned_to_me", "completed": False}
+    assert sent["order_by"] == "due_date"
+
+
+@respx.mock
+def test_get_action_item():
+    respx.get("https://test.fellow.app/api/v1/action_item/x").mock(
+        return_value=Response(200, json={"action_item": {"id": "x", "status": "Incomplete"}})
+    )
+    item = _client().get_action_item("x")
+    assert item["status"] == "Incomplete"
+
+
+@respx.mock
+def test_set_action_item_completed_true():
+    route = respx.post("https://test.fellow.app/api/v1/action_item/x/complete").mock(
+        return_value=Response(200, json={"action_item": {"id": "x", "status": "Done"}})
+    )
+    result = _client().set_action_item_completed("x", True)
+    assert result["status"] == "Done"
+    assert json.loads(route.calls[0].request.read()) == {"completed": True}
+
+
+@respx.mock
+def test_set_action_item_completed_false():
+    route = respx.post("https://test.fellow.app/api/v1/action_item/x/complete").mock(
+        return_value=Response(200, json={"action_item": {"id": "x", "status": "Incomplete"}})
+    )
+    _client().set_action_item_completed("x", False)
+    assert json.loads(route.calls[0].request.read()) == {"completed": False}
+
+
+@respx.mock
+def test_archive_action_item():
+    route = respx.post("https://test.fellow.app/api/v1/action_item/x/archive").mock(
+        return_value=Response(200, json={"action_item": {"id": "x", "status": "Archived"}})
+    )
+    result = _client().archive_action_item("x")
+    assert result["status"] == "Archived"
+    assert json.loads(route.calls[0].request.read()) == {}
+
+
+def test_rejects_unknown_action_item_order():
+    with pytest.raises(ValueError, match="order_by"):
+        list(_client().list_action_items(order_by="alphabetical"))
