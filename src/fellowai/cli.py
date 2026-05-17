@@ -2,6 +2,7 @@ import click
 
 from fellowai import __version__
 from fellowai.commands.auth import login, logout, me
+from fellowai.commands import recordings as recordings_cmds
 
 
 @click.group()
@@ -18,6 +19,9 @@ cli.add_command(me)
 @cli.group()
 def recordings() -> None:
     """Recording operations."""
+
+
+recordings_cmds.register(recordings)
 
 
 @cli.group()
