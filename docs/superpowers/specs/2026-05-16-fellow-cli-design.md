@@ -93,7 +93,7 @@ Env-var override for CI/scripts: `FELLOWAI_API_KEY` + `FELLOWAI_SUBDOMAIN`. Docu
 
 ## API surface (verified)
 
-The complete public REST API as of 2026-05-16, confirmed via Playwright crawl of `developers.fellow.ai/reference/*`:
+Endpoint list confirmed via Playwright crawl of `developers.fellow.ai/reference/*`; resource shapes confirmed by direct probes against `reurbano.fellow.app` on 2026-05-16:
 
 | Resource | Operation | Method | Path |
 |-|-|-|-|
@@ -106,16 +106,54 @@ The complete public REST API as of 2026-05-16, confirmed via Playwright crawl of
 | Notes | Delete | DELETE | `/note/{id}` |
 | Action Items | Retrieve | GET | `/action_item/{id}` |
 | Action Items | List | POST | `/action_items` |
-| Action Items | Mark complete | POST | (slug: `mark_action_item_complete`) |
-| Action Items | Archive | POST | (slug: `archive_action_item`) |
+| Action Items | Mark complete | POST | `/action_item/{id}/complete` |
+| Action Items | Archive | POST | `/action_item/{id}/archive` |
 | Webhooks | Create/Retrieve/Update/Delete/List | POST/GET/PATCH/DELETE/GET | — |
 
-Notable findings:
+### Resource shapes (verified)
 
-- **Transcripts and AI summaries are nested fields on the Recording resource**, not separate endpoints. The Recording response includes `transcript`, `ai_notes` (with sub-types: Key Moments, Topics, Action Items, Decisions, free text), `media_url` (pre-signed audio/video URL — requires a *privileged* API key), and metadata (`title`, `started_at`, `ended_at`, `note_id`).
-- **The `include` parameter on list/retrieve endpoints controls expensive fields.** Transcript and `ai_notes` are NOT returned by default; you must request them via `include`. This matters for performance — list calls without `include` are fast.
-- **Notes are a distinct resource from Recordings.** A Recording's `note_id` links to the corresponding Note. Notes hold the structured/editable meeting note document (agenda, decisions, human-written content).
-- **Action items are flat** — not nested in recordings — with their own list/retrieve plus `complete` and `archive` write operations.
+**`/me`** → `{ user: {id, email, full_name}, workspace: {id, name, subdomain} }`
+
+**Recording**:
+- Always: `id, title, created_at, updated_at, started_at, ended_at, event_call_url, event_guid, note_id, user_has_calendar_event`
+- Optional (always present as keys but **null** unless requested):
+  - `transcript: { speech_segments: [{start, end, speaker, text}], language_code }` — **inline, not a sub-URL**
+  - `ai_notes: [{ id, is_active, title, template_creator, sections: [{title, type, content}] }]` — array of templates; section types `STANDARD`/`CUSTOM`; section content can be a string (Summary), or arrays for `Action items` / `Decisions` / `Topics` / `Key Moments`
+  - `media_url: string | null` — pre-signed URL for audio/video
+
+**Critical asymmetry between list and get:**
+
+- `POST /recordings` (list) — `transcript` and `ai_notes` are `null` unless `include.transcript=true` / `include.ai_notes=true`. Default list calls are cheap.
+- `GET /recording/{id}` (single) — **`transcript` and `ai_notes` are populated by default**, no include needed. So `fellowai recordings get <id>` returns everything; `fellowai recordings list` requires opt-in.
+
+**Note**:
+- Always: `id, created_at, updated_at, title, event_guid, event_start, event_end, event_is_all_day, recording_ids[]`
+- Optional (include keys are `event_attendees` and `content_markdown`):
+  - `event_attendees: [{email}] | null`
+  - `content_markdown: string | null` (the human-edited markdown body of the note)
+
+`recording_ids` is **plural** — a single Note can correspond to multiple Recordings (recurring meetings).
+
+`GET /note/{id}` returns event_attendees + content_markdown populated by default; `POST /notes` (list) requires opt-in. Same asymmetry as Recordings.
+
+**ActionItem**:
+- `id, text, status, created_at, updated_at, due_date, note_id, assignees, completion_type, ai_detected, recording_offset, ai_suggestion_accepted_by_user`
+- `status` is a **string**: `"Incomplete"` or `"Complete"` (for display)
+- `assignees` is an **array**: `[{id, full_name, email}, ...]`
+- `recording_offset` is seconds into the source recording where the item was extracted (enables future "jump to moment" feature)
+- **Asymmetry**: the *filter* uses `completed: boolean`, but the *response* uses `status: string`. The client maps between them.
+
+### media_url behavior — corrected from earlier draft
+
+Probing `include.media_url=true` with a non-privileged key returned **`media_url: null` with HTTP 200**, not a 403. This changes the error UX: instead of a forbidden-error sentence, we detect `null` when the user passed `--with-media` and emit a sentence-shaped warning to stderr:
+
+```
+Warning: media_url was requested but is null. This usually means your API
+key is not privileged. Ask a workspace admin for a privileged key to
+download recording audio/video.
+```
+
+The command still succeeds (exit 0) and emits the other data; the warning is just an explainer.
 
 ## Pagination, rate limits, errors
 
@@ -144,24 +182,37 @@ Common pagination flags:
 
 ### `recordings list/get/export`
 
-Filter flags (mapped to confirmed API filter fields):
+Filter flags on `list` and `export` (mapped to confirmed API filter fields):
 
 - `--since <relative-or-absolute>` → `created_at_start` (e.g., `7d`, `2026-04-01`)
 - `--until <relative-or-absolute>` → `created_at_end`
 - `--updated-since` → `updated_at_start` (when you want recordings whose notes/transcript were edited recently)
-- `--channel <id>` → `channel_id` (channels are filterable even though there's no `channels list` endpoint)
+- `--channel <id>` → `channel_id`
 - `--title <substring>` → `title`
 - `--event <guid>` → `event_guid` (filter by calendar event)
 
-Include flags (control expensive nested fields, default off):
+Include flags on `list` and `export` (control expensive nested fields, default off):
 
-- `--with-transcript` → `include.transcript = true`
-- `--with-ai-notes` → `include.ai_notes = true` (the AI summary: key moments, decisions, topics, etc.)
-- `--with-media` → request a `media_url` via top-level `media_url: MediaUrlConfig` body field. **Requires a privileged API key**; a non-privileged key produces a 403 that we map to a sentence error explaining the limitation.
+- `--with-transcript` → `include.transcript = true` (inline `speech_segments`)
+- `--with-ai-notes` → `include.ai_notes = true` (Summary, Action items, Decisions, Topics, Key Moments)
+- `--with-media` → `include.media_url = true`. Returns `null` for non-privileged keys (no error); the CLI emits a stderr warning explaining this when null is observed.
+
+**`recordings get <id>` does not need `--with-*` flags** — the API returns `transcript`, `ai_notes`, and `media_url` populated by default on the single-resource GET. `--no-transcript` / `--no-ai-notes` / `--no-media` are available to suppress them client-side for compact output.
 
 ### `notes list/get/export`
 
-Same `--since` / `--until` / `--limit` / `--page-size` flags. Note resource shape and filter list confirmed at implementation time; expected to mirror Recording's filter set.
+Filter flags (Notes accepts the same `created_at_start` filter as Recordings — verified):
+
+- `--since` → `created_at_start`
+- `--until` → `created_at_end`
+- (other filters like `--updated-since`, `--title`, `--channel`, `--event` available pending confirmation that Notes uses the same RecordingFilters schema; if not, those flags are omitted in v1)
+
+Include flags (verified):
+
+- `--with-content` → `include.content_markdown = true` (the human-edited markdown body)
+- `--with-attendees` → `include.event_attendees = true`
+
+As with Recordings, `notes get <id>` returns these fields populated by default; the include flags only matter for `list` / `export`.
 
 ### `action-items list/get/pick/complete/uncomplete/archive`
 
@@ -391,12 +442,11 @@ Mark an action item complete:
 
 ## Open questions to resolve during implementation
 
-These need a real API key to confirm; none block the design:
+Most prior unknowns are now answered by direct probes. Remaining:
 
-1. Note resource filter set (expected to mirror Recording's: `created_at_*`, `updated_at_*`, `channel_id`, `title`; confirm at implementation).
-2. Whether the privileged-key distinction is a property of the key itself or a request-time scope. Affects only the `--with-media` flag.
-3. Whether `--with-transcript` returns transcript text inline on the Recording response or as a sub-URL that needs a second fetch.
-4. Exact shape of the `MediaUrlConfig` body parameter (expiration window).
+1. Full filter set for Notes beyond `created_at_start` (Recordings has `updated_at_*`, `channel_id`, `title`, `event_guid` — confirm Notes accepts the same set by probing at implementation time).
+2. Whether there's a `MediaUrlConfig` expiration parameter (probed with `include.media_url=true` only; the documented `media_url: MediaUrlConfig` top-level body field may give finer control).
+3. Rate-limit response body shape — only the documented spec (HTTP 429 + `rate_limited` code) is confirmed; want to capture the exact error JSON when implementing the retry layer.
 
 ## Out of scope, captured for later
 
