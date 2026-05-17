@@ -78,6 +78,19 @@ List recordings as JSON (auto when piped):
 Mark an action item complete:
     fellowai action-items complete <id> --yes
 
+## Linking back to Fellow's UI
+
+When pointing the user at a specific meeting in Fellow, build the URL
+from the recording's `event_guid` (not `id` or `note_id`):
+
+    https://<workspace_subdomain>.fellow.app/meetings/<event_guid>/
+
+Example: a recording with `"event_guid": "3e16f2qhbv7lfms6ko9cdbbpef"`
+in workspace `reurbano` lives at
+`https://reurbano.fellow.app/meetings/3e16f2qhbv7lfms6ko9cdbbpef/`.
+
+Do not invent `/recordings/<id>/` or `/notes/<note_id>/` — those return 404.
+
 ## Output rules
 
 - TTY: pretty tables for lists, markdown for documents
