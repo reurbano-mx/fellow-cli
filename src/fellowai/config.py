@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import stat
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -37,9 +38,31 @@ def _config_path() -> Path:
     return _config_dir() / "config.toml"
 
 
+def _prepare_config_dir(parent: Path) -> None:
+    """Create the config dir as 0o700 on POSIX; reject unsafe pre-existing dirs.
+
+    Without this, mkdir() honors the process umask — under umask 000 the
+    parent could be world-writable and another local user could replace
+    or unlink the 0o600 config.toml even though the file itself is locked.
+    """
+    parent.mkdir(parents=True, exist_ok=True)
+    if os.name != "posix":
+        return
+    st = os.stat(parent)
+    # Refuse if not owned by us — someone else may be steering loads.
+    if st.st_uid != os.getuid():
+        raise ConfigError(
+            f"Refusing to write config: {parent} is not owned by the current user."
+        )
+    # Tighten group/world bits even on pre-existing directories.
+    mode = stat.S_IMODE(st.st_mode)
+    if mode & 0o077:
+        os.chmod(parent, mode & 0o700)
+
+
 def save_config(cfg: Config) -> None:
     path = _config_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
+    _prepare_config_dir(path.parent)
     data = {"subdomain": cfg.subdomain, "api_key": cfg.api_key}
 
     if os.name == "posix":
