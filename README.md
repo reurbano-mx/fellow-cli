@@ -42,7 +42,15 @@ You can also set `FELLOWAI_SUBDOMAIN` and `FELLOWAI_API_KEY` as environment vari
 
 ## Three sample pipelines
 
-**1. Summarize this week's meetings with an LLM**
+**1. Summarize this week's meetings — inside Claude Code (or any AI agent)**
+
+Just ask:
+
+> "Use fellowai to export this week's meeting transcripts to /tmp/week.md, then summarize the key decisions and risks."
+
+The agent will run `fellowai recordings export --since 7d --with-transcript --format md --to /tmp/week.md`, read the file, and summarize. No extra tools needed.
+
+For unattended automation (cron, scripts), pipe to a CLI LLM like Simon Willison's [`llm`](https://llm.datasette.io/):
 
 ```bash
 fellowai recordings export --since 7d --with-transcript --format md --to - \
