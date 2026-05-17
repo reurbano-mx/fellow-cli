@@ -9,19 +9,10 @@ from typing import Any
 
 import click
 
-from fellowai.client import FellowClient, FellowError
-from fellowai.config import ConfigError, load_config
+from fellowai.client import FellowError
+from fellowai.commands import make_client as _client
 from fellowai.output import emit, render_note_markdown
 from fellowai.time_parse import parse_since
-
-
-def _client() -> FellowClient:
-    try:
-        cfg = load_config()
-    except ConfigError as e:
-        click.echo(str(e), err=True)
-        sys.exit(2)
-    return FellowClient(subdomain=cfg.subdomain, api_key=cfg.api_key)
 
 
 def _build_filters(since: str | None, until: str | None) -> dict:
@@ -53,14 +44,14 @@ def _build_include(with_content: bool, with_attendees: bool) -> dict:
 def notes_list(since, until, with_content, with_attendees, limit, page_size, format_override):
     """List notes."""
     client = _client()
-    filters = _build_filters(since, until)
-    include = _build_include(with_content, with_attendees)
     try:
+        filters = _build_filters(since, until)
+        include = _build_include(with_content, with_attendees)
         items = list(client.list_notes(
             filters=filters or None, include=include or None,
             limit=limit, page_size=page_size,
         ))
-    except FellowError as e:
+    except (FellowError, ValueError) as e:
         from fellowai.errors import handle
         handle(e)
     emit(items, shape="list",
@@ -102,14 +93,14 @@ def notes_export(since, until, with_content, with_attendees, limit, page_size, f
         sys.exit(1)
 
     client = _client()
-    filters = _build_filters(since, until)
-    include = _build_include(with_content, with_attendees)
     try:
+        filters = _build_filters(since, until)
+        include = _build_include(with_content, with_attendees)
         items = list(client.list_notes(
             filters=filters or None, include=include or None,
             limit=limit, page_size=page_size,
         ))
-    except FellowError as e:
+    except (FellowError, ValueError) as e:
         from fellowai.errors import handle
         handle(e)
 

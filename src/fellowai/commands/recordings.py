@@ -9,22 +9,14 @@ from typing import Any
 
 import click
 
-from fellowai.client import FellowClient, FellowError
-from fellowai.config import ConfigError, load_config
+from fellowai.client import FellowError
+from fellowai.commands import make_client as _client
 from fellowai.output import emit, render_recording_markdown
 from fellowai.time_parse import parse_since
 
 
-def _client() -> FellowClient:
-    try:
-        cfg = load_config()
-    except ConfigError as e:
-        click.echo(str(e), err=True)
-        sys.exit(2)
-    return FellowClient(subdomain=cfg.subdomain, api_key=cfg.api_key)
-
-
-def _build_filters(since: str | None, until: str | None, updated_since: str | None,
+def _build_filters(since: str | None, until: str | None,
+                   updated_since: str | None, updated_until: str | None,
                    channel: str | None, title: str | None, event: str | None) -> dict:
     filters: dict[str, Any] = {}
     if since:
@@ -33,6 +25,8 @@ def _build_filters(since: str | None, until: str | None, updated_since: str | No
         filters["created_at_end"] = parse_since(until)
     if updated_since:
         filters["updated_at_start"] = parse_since(updated_since)
+    if updated_until:
+        filters["updated_at_end"] = parse_since(updated_until)
     if channel:
         filters["channel_id"] = channel
     if title:
@@ -69,6 +63,7 @@ def _warn_media_null(items: list[dict], requested_media: bool) -> None:
 @click.option("--since")
 @click.option("--until")
 @click.option("--updated-since")
+@click.option("--updated-until")
 @click.option("--channel")
 @click.option("--title")
 @click.option("--event")
@@ -79,21 +74,22 @@ def _warn_media_null(items: list[dict], requested_media: bool) -> None:
 @click.option("--page-size", type=click.IntRange(1, 50), default=20)
 @click.option("--json", "format_override", flag_value="json")
 def recordings_list(
-    since: str | None, until: str | None, updated_since: str | None,
+    since: str | None, until: str | None,
+    updated_since: str | None, updated_until: str | None,
     channel: str | None, title: str | None, event: str | None,
     with_transcript: bool, with_ai_notes: bool, with_media: bool,
     limit: int, page_size: int, format_override: str | None,
 ) -> None:
     """List recordings."""
     client = _client()
-    filters = _build_filters(since, until, updated_since, channel, title, event)
-    include = _build_include(with_transcript, with_ai_notes, with_media)
     try:
+        filters = _build_filters(since, until, updated_since, updated_until, channel, title, event)
+        include = _build_include(with_transcript, with_ai_notes, with_media)
         items = list(client.list_recordings(
             filters=filters or None, include=include or None,
             limit=limit, page_size=page_size,
         ))
-    except FellowError as e:
+    except (FellowError, ValueError) as e:
         from fellowai.errors import handle
         handle(e)
 
@@ -140,6 +136,7 @@ def recordings_get(
 @click.option("--since")
 @click.option("--until")
 @click.option("--updated-since")
+@click.option("--updated-until")
 @click.option("--channel")
 @click.option("--title")
 @click.option("--event")
@@ -151,7 +148,8 @@ def recordings_get(
 @click.option("--format", "fmt", type=click.Choice(["json", "md", "both"]), default="md")
 @click.option("--to", "destination", required=True)
 def recordings_export(
-    since: str | None, until: str | None, updated_since: str | None,
+    since: str | None, until: str | None,
+    updated_since: str | None, updated_until: str | None,
     channel: str | None, title: str | None, event: str | None,
     with_transcript: bool, with_ai_notes: bool, with_media: bool,
     limit: int, page_size: int, fmt: str, destination: str,
@@ -162,14 +160,14 @@ def recordings_export(
         sys.exit(1)
 
     client = _client()
-    filters = _build_filters(since, until, updated_since, channel, title, event)
-    include = _build_include(with_transcript, with_ai_notes, with_media)
     try:
+        filters = _build_filters(since, until, updated_since, updated_until, channel, title, event)
+        include = _build_include(with_transcript, with_ai_notes, with_media)
         items = list(client.list_recordings(
             filters=filters or None, include=include or None,
             limit=limit, page_size=page_size,
         ))
-    except FellowError as e:
+    except (FellowError, ValueError) as e:
         from fellowai.errors import handle
         handle(e)
 

@@ -7,19 +7,10 @@ from typing import Any
 
 import click
 
-from fellowai.client import FellowClient, FellowError
-from fellowai.config import ConfigError, load_config
+from fellowai.client import FellowError
+from fellowai.commands import make_client as _client
 from fellowai.output import emit, render_action_item_card
 from fellowai.time_parse import parse_since
-
-
-def _client() -> FellowClient:
-    try:
-        cfg = load_config()
-    except ConfigError as e:
-        click.echo(str(e), err=True)
-        sys.exit(2)
-    return FellowClient(subdomain=cfg.subdomain, api_key=cfg.api_key)
 
 
 _SCOPE_MAP = {"mine": "assigned_to_me", "others": "assigned_to_others", "all": "all"}
@@ -27,7 +18,8 @@ _ORDER_MAP = {"newest": "created_at_desc", "oldest": "created_at_asc", "due": "d
 
 
 def _build_filters(scope: str, completed: bool | None,
-                   archived: bool | None, ai_detected: bool | None) -> dict:
+                   archived: bool | None, ai_detected: bool | None,
+                   ai_suggestion_accepted: bool | None = None) -> dict:
     filters: dict[str, Any] = {"scope": _SCOPE_MAP[scope]}
     if completed is not None:
         filters["completed"] = completed
@@ -35,6 +27,8 @@ def _build_filters(scope: str, completed: bool | None,
         filters["archived"] = archived
     if ai_detected is not None:
         filters["ai_detected"] = ai_detected
+    if ai_suggestion_accepted is not None:
+        filters["ai_suggestion_accepted_by_user"] = ai_suggestion_accepted
     return filters
 
 
@@ -43,27 +37,29 @@ def _build_filters(scope: str, completed: bool | None,
 @click.option("--completed/--not-completed", "completed", default=None)
 @click.option("--archived/--not-archived", "archived", default=None)
 @click.option("--ai-detected/--not-ai-detected", "ai_detected", default=None)
+@click.option("--ai-suggestion-accepted/--ai-suggestion-not-accepted",
+              "ai_suggestion_accepted", default=None)
 @click.option("--order", "order", type=click.Choice(["newest", "oldest", "due"]), default=None)
 @click.option("--since", help="Filter client-side on created_at (no server-side filter)")
 @click.option("--limit", type=int, default=50)
 @click.option("--page-size", type=click.IntRange(1, 50), default=20)
 @click.option("--json", "format_override", flag_value="json")
-def ai_list(scope, completed, archived, ai_detected, order, since, limit, page_size, format_override):
+def ai_list(scope, completed, archived, ai_detected, ai_suggestion_accepted,
+            order, since, limit, page_size, format_override):
     """List action items."""
     client = _client()
-    filters = _build_filters(scope, completed, archived, ai_detected)
-    order_by = _ORDER_MAP[order] if order else None
     try:
+        filters = _build_filters(scope, completed, archived, ai_detected, ai_suggestion_accepted)
+        order_by = _ORDER_MAP[order] if order else None
         items = list(client.list_action_items(
             filters=filters, order_by=order_by, limit=limit, page_size=page_size,
         ))
-    except FellowError as e:
+        if since:
+            cutoff = parse_since(since)
+            items = [i for i in items if (i.get("created_at") or "") >= cutoff]
+    except (FellowError, ValueError) as e:
         from fellowai.errors import handle
         handle(e)
-
-    if since:
-        cutoff = parse_since(since)
-        items = [i for i in items if (i.get("created_at") or "") >= cutoff]
 
     emit(items, shape="list",
          columns=["id", "text", "status", "due_date"],
@@ -197,10 +193,10 @@ def ai_pick(scope, completed, archived, ai_detected, limit, page_size, format_ov
         sys.exit(1)
 
     client = _client()
-    filters = _build_filters(scope, completed, archived, ai_detected)
     try:
+        filters = _build_filters(scope, completed, archived, ai_detected)
         items = list(client.list_action_items(filters=filters, limit=limit, page_size=page_size))
-    except FellowError as e:
+    except (FellowError, ValueError) as e:
         from fellowai.errors import handle
         handle(e)
 

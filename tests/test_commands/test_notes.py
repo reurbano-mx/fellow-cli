@@ -17,7 +17,7 @@ def _env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 def test_list_notes_json(tmp_path, monkeypatch):
     _env(monkeypatch, tmp_path)
     runner = CliRunner()
-    with patch("fellowai.commands.notes.FellowClient") as MockClient:
+    with patch("fellowai.commands.FellowClient") as MockClient:
         MockClient.return_value.list_notes.return_value = iter([
             {"id": "n1", "title": "Note A", "event_start": "2026-05-01T00:00:00Z"},
         ])
@@ -30,7 +30,7 @@ def test_list_notes_json(tmp_path, monkeypatch):
 def test_list_notes_passes_filter(tmp_path, monkeypatch):
     _env(monkeypatch, tmp_path)
     runner = CliRunner()
-    with patch("fellowai.commands.notes.FellowClient") as MockClient:
+    with patch("fellowai.commands.FellowClient") as MockClient:
         MockClient.return_value.list_notes.return_value = iter([])
         runner.invoke(cli, ["notes", "list", "--since", "2026-05-01", "--with-content", "--json"])
     kwargs = MockClient.return_value.list_notes.call_args.kwargs
@@ -41,7 +41,7 @@ def test_list_notes_passes_filter(tmp_path, monkeypatch):
 def test_get_note_markdown(tmp_path, monkeypatch):
     _env(monkeypatch, tmp_path)
     runner = CliRunner()
-    with patch("fellowai.commands.notes.FellowClient") as MockClient:
+    with patch("fellowai.commands.FellowClient") as MockClient:
         MockClient.return_value.get_note.return_value = {
             "id": "n1", "title": "Standup",
             "event_start": "2026-05-01T10:00:00Z", "event_end": "2026-05-01T10:30:00Z",
@@ -59,7 +59,7 @@ def test_export_notes_to_dir(tmp_path, monkeypatch):
     _env(monkeypatch, tmp_path)
     outdir = tmp_path / "out"
     runner = CliRunner()
-    with patch("fellowai.commands.notes.FellowClient") as MockClient:
+    with patch("fellowai.commands.FellowClient") as MockClient:
         MockClient.return_value.list_notes.return_value = iter([
             {"id": "n1", "title": "One", "event_attendees": None,
              "content_markdown": "body"},

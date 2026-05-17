@@ -17,7 +17,7 @@ def _env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 def test_list_recordings_pipes_json(tmp_path, monkeypatch):
     _env(monkeypatch, tmp_path)
     runner = CliRunner()
-    with patch("fellowai.commands.recordings.FellowClient") as MockClient:
+    with patch("fellowai.commands.FellowClient") as MockClient:
         MockClient.return_value.list_recordings.return_value = iter([
             {"id": "r1", "title": "T", "started_at": "2026-05-01T00:00:00Z"},
         ])
@@ -30,7 +30,7 @@ def test_list_recordings_pipes_json(tmp_path, monkeypatch):
 def test_list_recordings_passes_since_filter(tmp_path, monkeypatch):
     _env(monkeypatch, tmp_path)
     runner = CliRunner()
-    with patch("fellowai.commands.recordings.FellowClient") as MockClient:
+    with patch("fellowai.commands.FellowClient") as MockClient:
         MockClient.return_value.list_recordings.return_value = iter([])
         runner.invoke(cli, ["recordings", "list", "--since", "2026-05-01", "--json"])
     call_kwargs = MockClient.return_value.list_recordings.call_args.kwargs
@@ -40,7 +40,7 @@ def test_list_recordings_passes_since_filter(tmp_path, monkeypatch):
 def test_list_recordings_with_transcript(tmp_path, monkeypatch):
     _env(monkeypatch, tmp_path)
     runner = CliRunner()
-    with patch("fellowai.commands.recordings.FellowClient") as MockClient:
+    with patch("fellowai.commands.FellowClient") as MockClient:
         MockClient.return_value.list_recordings.return_value = iter([])
         runner.invoke(cli, ["recordings", "list", "--with-transcript", "--json"])
     kwargs = MockClient.return_value.list_recordings.call_args.kwargs
@@ -50,7 +50,7 @@ def test_list_recordings_with_transcript(tmp_path, monkeypatch):
 def test_get_recording_outputs_markdown_by_default(tmp_path, monkeypatch):
     _env(monkeypatch, tmp_path)
     runner = CliRunner()
-    with patch("fellowai.commands.recordings.FellowClient") as MockClient:
+    with patch("fellowai.commands.FellowClient") as MockClient:
         MockClient.return_value.get_recording.return_value = {
             "id": "r1", "title": "Q2 planning",
             "started_at": "2026-05-01T00:00:00Z", "ended_at": None,
@@ -69,7 +69,7 @@ def test_with_media_null_emits_stderr_warning(tmp_path, monkeypatch):
     _env(monkeypatch, tmp_path)
     # mix_stderr was removed in Click 8.4+; check combined output instead
     runner = CliRunner()
-    with patch("fellowai.commands.recordings.FellowClient") as MockClient:
+    with patch("fellowai.commands.FellowClient") as MockClient:
         MockClient.return_value.list_recordings.return_value = iter([
             {"id": "r1", "title": "T", "media_url": None}
         ])
@@ -84,7 +84,7 @@ def test_with_media_null_emits_stderr_warning(tmp_path, monkeypatch):
 def test_export_to_stdout_concatenates_markdown(tmp_path, monkeypatch):
     _env(monkeypatch, tmp_path)
     runner = CliRunner()
-    with patch("fellowai.commands.recordings.FellowClient") as MockClient:
+    with patch("fellowai.commands.FellowClient") as MockClient:
         MockClient.return_value.list_recordings.return_value = iter([
             {"id": "r1", "title": "One", "started_at": None, "ended_at": None,
              "transcript": None, "ai_notes": None},
@@ -103,7 +103,7 @@ def test_export_to_dir_writes_files(tmp_path, monkeypatch):
     _env(monkeypatch, tmp_path)
     outdir = tmp_path / "out"
     runner = CliRunner()
-    with patch("fellowai.commands.recordings.FellowClient") as MockClient:
+    with patch("fellowai.commands.FellowClient") as MockClient:
         MockClient.return_value.list_recordings.return_value = iter([
             {"id": "r1", "title": "One", "started_at": None, "ended_at": None,
              "transcript": None, "ai_notes": None},

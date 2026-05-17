@@ -17,7 +17,7 @@ def test_error_without_debug_is_sentence(tmp_path, monkeypatch):
     from fellowai.client import AuthError
     _env(monkeypatch, tmp_path)
     runner = CliRunner()
-    with patch("fellowai.commands.recordings.FellowClient") as MockClient:
+    with patch("fellowai.commands.FellowClient") as MockClient:
         MockClient.return_value.list_recordings.side_effect = AuthError("Unauthorized")
         result = runner.invoke(cli, ["recordings", "list"])
     assert result.exit_code == 2
@@ -29,7 +29,7 @@ def test_error_with_debug_shows_traceback(tmp_path, monkeypatch):
     from fellowai.client import AuthError
     _env(monkeypatch, tmp_path)
     runner = CliRunner()
-    with patch("fellowai.commands.recordings.FellowClient") as MockClient:
+    with patch("fellowai.commands.FellowClient") as MockClient:
         MockClient.return_value.list_recordings.side_effect = AuthError("Unauthorized")
         result = runner.invoke(cli, ["--debug", "recordings", "list"])
     assert result.exit_code != 0

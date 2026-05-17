@@ -17,7 +17,7 @@ def _env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 def test_list_action_items_default_scope_mine(tmp_path, monkeypatch):
     _env(monkeypatch, tmp_path)
     runner = CliRunner()
-    with patch("fellowai.commands.action_items.FellowClient") as MockClient:
+    with patch("fellowai.commands.FellowClient") as MockClient:
         MockClient.return_value.list_action_items.return_value = iter([])
         runner.invoke(cli, ["action-items", "list", "--json"])
     kwargs = MockClient.return_value.list_action_items.call_args.kwargs
@@ -27,7 +27,7 @@ def test_list_action_items_default_scope_mine(tmp_path, monkeypatch):
 def test_list_action_items_filter_flags(tmp_path, monkeypatch):
     _env(monkeypatch, tmp_path)
     runner = CliRunner()
-    with patch("fellowai.commands.action_items.FellowClient") as MockClient:
+    with patch("fellowai.commands.FellowClient") as MockClient:
         MockClient.return_value.list_action_items.return_value = iter([])
         runner.invoke(cli, [
             "action-items", "list",
@@ -48,7 +48,7 @@ def test_list_action_items_since_client_side_filter(tmp_path, monkeypatch):
         {"id": "new", "text": "y", "status": "Incomplete", "created_at": "2026-05-15T00:00:00Z"},
     ]
     runner = CliRunner()
-    with patch("fellowai.commands.action_items.FellowClient") as MockClient:
+    with patch("fellowai.commands.FellowClient") as MockClient:
         MockClient.return_value.list_action_items.return_value = iter(items)
         result = runner.invoke(cli, [
             "action-items", "list", "--since", "2026-05-01", "--json"
@@ -60,7 +60,7 @@ def test_list_action_items_since_client_side_filter(tmp_path, monkeypatch):
 def test_get_action_item_card_on_tty(tmp_path, monkeypatch):
     _env(monkeypatch, tmp_path)
     runner = CliRunner()
-    with patch("fellowai.commands.action_items.FellowClient") as MockClient:
+    with patch("fellowai.commands.FellowClient") as MockClient:
         MockClient.return_value.get_action_item.return_value = {
             "id": "x", "text": "Email Bob", "status": "Incomplete",
             "due_date": None, "assignees": [{"full_name": "K"}], "ai_detected": False,
@@ -73,7 +73,7 @@ def test_get_action_item_card_on_tty(tmp_path, monkeypatch):
 def test_complete_with_yes_calls_api(tmp_path, monkeypatch):
     _env(monkeypatch, tmp_path)
     runner = CliRunner()
-    with patch("fellowai.commands.action_items.FellowClient") as MockClient:
+    with patch("fellowai.commands.FellowClient") as MockClient:
         MockClient.return_value.set_action_item_completed.return_value = {
             "id": "x", "status": "Done", "text": "T"
         }
@@ -86,7 +86,7 @@ def test_complete_with_yes_calls_api(tmp_path, monkeypatch):
 def test_complete_without_yes_prompts_and_aborts_on_no(tmp_path, monkeypatch):
     _env(monkeypatch, tmp_path)
     runner = CliRunner()
-    with patch("fellowai.commands.action_items.FellowClient") as MockClient:
+    with patch("fellowai.commands.FellowClient") as MockClient:
         result = runner.invoke(cli, ["action-items", "complete", "x"], input="n\n")
     assert result.exit_code == 1
     MockClient.return_value.set_action_item_completed.assert_not_called()
@@ -95,7 +95,7 @@ def test_complete_without_yes_prompts_and_aborts_on_no(tmp_path, monkeypatch):
 def test_uncomplete_with_yes(tmp_path, monkeypatch):
     _env(monkeypatch, tmp_path)
     runner = CliRunner()
-    with patch("fellowai.commands.action_items.FellowClient") as MockClient:
+    with patch("fellowai.commands.FellowClient") as MockClient:
         MockClient.return_value.set_action_item_completed.return_value = {
             "id": "x", "status": "Incomplete", "text": "T"
         }
@@ -107,7 +107,7 @@ def test_uncomplete_with_yes(tmp_path, monkeypatch):
 def test_archive_with_yes(tmp_path, monkeypatch):
     _env(monkeypatch, tmp_path)
     runner = CliRunner()
-    with patch("fellowai.commands.action_items.FellowClient") as MockClient:
+    with patch("fellowai.commands.FellowClient") as MockClient:
         MockClient.return_value.archive_action_item.return_value = {
             "id": "x", "status": "Archived", "text": "T"
         }
@@ -125,7 +125,7 @@ def test_pick_emits_selected_as_json(tmp_path, monkeypatch):
         {"id": "b", "text": "Second", "status": "Incomplete"},
         {"id": "c", "text": "Third", "status": "Incomplete"},
     ]
-    with patch("fellowai.commands.action_items.FellowClient") as MockClient, \
+    with patch("fellowai.commands.FellowClient") as MockClient, \
          patch("fellowai.commands.action_items._prompt_selection") as MockPrompt, \
          patch("fellowai.commands.action_items._is_tty", return_value=True):
         MockClient.return_value.list_action_items.return_value = iter(items)
@@ -141,7 +141,7 @@ def test_pick_cancel_exits_1(tmp_path, monkeypatch):
     _env(monkeypatch, tmp_path)
     runner = CliRunner()
     items = [{"id": "a", "text": "First", "status": "Incomplete"}]
-    with patch("fellowai.commands.action_items.FellowClient") as MockClient, \
+    with patch("fellowai.commands.FellowClient") as MockClient, \
          patch("fellowai.commands.action_items._prompt_selection") as MockPrompt, \
          patch("fellowai.commands.action_items._is_tty", return_value=True):
         MockClient.return_value.list_action_items.return_value = iter(items)

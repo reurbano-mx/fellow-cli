@@ -30,8 +30,9 @@ def emit(
         _print_json(data)
         return
     if format_override == "md" and markdown_renderer is not None:
-        sys.stdout.write(markdown_renderer(data))
-        if not (markdown_renderer(data) or "").endswith("\n"):
+        rendered = markdown_renderer(data) or ""
+        sys.stdout.write(rendered)
+        if not rendered.endswith("\n"):
             sys.stdout.write("\n")
         return
 
@@ -51,8 +52,9 @@ def emit(
 
     if shape == "document":
         if markdown_renderer is not None:
-            sys.stdout.write(markdown_renderer(data))
-            if not (markdown_renderer(data) or "").endswith("\n"):
+            rendered = markdown_renderer(data) or ""
+            sys.stdout.write(rendered)
+            if not rendered.endswith("\n"):
                 sys.stdout.write("\n")
         else:
             _print_json(data)
