@@ -25,6 +25,9 @@ Pipe recent transcripts to an LLM:
 
 Get the AI-generated summary of one meeting as markdown:
     fellowai recordings get <id>
+    # `get` includes transcript and AI notes by default; `list` does not.
+    # Add `--with-transcript --with-ai-notes` to list, or `--no-transcript`
+    # / `--no-ai-notes` to get, to control payload size.
 
 Select action items interactively, emit JSON:
     fellowai action-items pick --scope mine --not-completed
