@@ -1,9 +1,10 @@
 """Login / logout / me commands."""
-
 from __future__ import annotations
 
+import importlib.resources as resources
 import sys
 import webbrowser
+from pathlib import Path
 
 import click
 
@@ -73,3 +74,15 @@ def me() -> None:
     ws = m.get("workspace", {})
     last4 = cfg.api_key[-4:] if len(cfg.api_key) >= 4 else "????"
     click.echo(f"{user.get('email', '?')}  workspace: {ws.get('subdomain', '?')}  key: ...{last4}")
+
+
+@click.command(name="install-skill")
+def install_skill() -> None:
+    """Install fellowai's SKILL.md into ~/.claude/skills/fellowai/."""
+    skill_text = resources.files("fellowai").joinpath("SKILL.md").read_text()
+    home = Path.home()
+    dest_dir = home / ".claude" / "skills" / "fellowai"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest_file = dest_dir / "SKILL.md"
+    dest_file.write_text(skill_text)
+    click.echo(f"✓ Installed skill to {dest_file}")

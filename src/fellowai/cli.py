@@ -1,7 +1,7 @@
 import click
 
 from fellowai import __version__
-from fellowai.commands.auth import login, logout, me
+from fellowai.commands.auth import install_skill, login, logout, me
 from fellowai.commands import action_items as ai_cmds
 from fellowai.commands import notes as notes_cmds
 from fellowai.commands import recordings as recordings_cmds
@@ -20,6 +20,7 @@ def cli(ctx: click.Context, debug: bool) -> None:
 cli.add_command(login)
 cli.add_command(logout)
 cli.add_command(me)
+cli.add_command(install_skill)
 
 
 @cli.group()
