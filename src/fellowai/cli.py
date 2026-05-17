@@ -2,6 +2,7 @@ import click
 
 from fellowai import __version__
 from fellowai.commands.auth import login, logout, me
+from fellowai.commands import action_items as ai_cmds
 from fellowai.commands import notes as notes_cmds
 from fellowai.commands import recordings as recordings_cmds
 
@@ -36,3 +37,6 @@ notes_cmds.register(notes)
 @cli.group(name="action-items")
 def action_items() -> None:
     """Action item operations."""
+
+
+ai_cmds.register(action_items)
