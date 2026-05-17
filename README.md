@@ -93,6 +93,16 @@ If you only have the CLI installed (no MCP), Claude will use the CLI for everyth
 
 **If you use multiple meeting tools** (read.ai, otter.ai, granola, etc. alongside Fellow), the skill tells Claude not to assume "the meeting" means Fellow. Be explicit when asking — say "summarize today's *Fellow* meeting" or reference a `fellow.app` link. Otherwise Claude will ask which tool to use rather than guess.
 
+**Escape hatch — just type the command.** When you want zero ambiguity, type the literal `fellowai` invocation into the chat:
+
+> `fellowai recordings list --since 7d --json`
+
+Claude will run it as-is via its Bash tool. Or prefix with `!` to run it directly in your shell (output still lands in the conversation):
+
+> `! fellowai recordings list --since 7d --json`
+
+This bypasses the skill's routing entirely — useful when you already know the exact command and don't want to negotiate it in natural language.
+
 ## What this CLI exposes
 
 | Resource | Commands |
