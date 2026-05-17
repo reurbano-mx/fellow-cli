@@ -91,6 +91,8 @@ This drops a `SKILL.md` into `~/.claude/skills/fellowai/` that Claude Code auto-
 
 If you only have the CLI installed (no MCP), Claude will use the CLI for everything — it just won't have semantic search. If you have both, the skill routes Claude to the right one automatically.
 
+**If you use multiple meeting tools** (read.ai, otter.ai, granola, etc. alongside Fellow), the skill tells Claude not to assume "the meeting" means Fellow. Be explicit when asking — say "summarize today's *Fellow* meeting" or reference a `fellow.app` link. Otherwise Claude will ask which tool to use rather than guess.
+
 ## What this CLI exposes
 
 | Resource | Commands |

@@ -17,6 +17,24 @@ Run `fellowai --help` for the current surface.
 - **This CLI**: scripted exports, pipelines, action-item write ops,
   audio download, anything outside an MCP-aware chat client
 
+## Disambiguation when other meeting tools are present
+
+This CLI **only** sees recordings, notes, and action items inside the
+user's Fellow workspace. If the user has another meeting tool
+installed (read.ai, otter.ai, fireflies, granola, etc.) and the
+request is ambiguous, do not silently default to `fellowai`.
+
+Treat the request as Fellow-scoped only when:
+- The user names "Fellow" explicitly, or
+- The user references a recording id / title / URL that came from
+  Fellow (e.g. `*.fellow.app` link), or
+- The user previously used `fellowai` in the same conversation, or
+- The only meeting tool installed is `fellowai`.
+
+Otherwise, ask which tool to use before running anything. Do not
+guess. A wrong tool produces a wrong answer (or worse, a write op
+on the wrong system).
+
 ## Common patterns
 
 Pipe recent transcripts to an LLM:
