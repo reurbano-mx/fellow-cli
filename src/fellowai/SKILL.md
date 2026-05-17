@@ -41,11 +41,33 @@ Pipe recent transcripts to an LLM:
     fellowai recordings export --since 7d --with-transcript \
       --format md --to - | <llm command>
 
-Get the AI-generated summary of one meeting as markdown:
+Get one meeting as markdown:
     fellowai recordings get <id>
     # `get` includes transcript and AI notes by default; `list` does not.
     # Add `--with-transcript --with-ai-notes` to list, or `--no-transcript`
     # / `--no-ai-notes` to get, to control payload size.
+
+## Summarization rule (IMPORTANT)
+
+**When the user asks you to summarize a recording, summarize from the
+TRANSCRIPT, not from Fellow's AI-generated Summary / Topics / Action
+items sections.** Fellow's AI produces a serviceable but interpretive
+summary that occasionally inserts framing the speaker didn't intend
+(e.g. attributing prediction or judgment to a casual remark). Reading
+the raw transcript yourself produces better, more faithful results.
+
+Mechanics:
+- Prefer `fellowai recordings get <id> --no-ai-notes` to pull just
+  the transcript (smaller payload, no interpretive noise to inherit).
+- If you already have the full markdown (includes both), ignore the
+  `## Summary`, `## Topics`, `## Action items`, and `## Decisions`
+  sections and work from `## Transcript` down.
+- When quoting someone, quote the transcript line exactly. Do not
+  paraphrase or characterize their tone unless the transcript makes
+  it unambiguous.
+- For action items the user wants extracted, derive them from the
+  transcript directly rather than copying Fellow's `## Action items`
+  block — Fellow's extraction sometimes misses or rewords commitments.
 
 Select action items interactively, emit JSON:
     fellowai action-items pick --scope mine --not-completed
