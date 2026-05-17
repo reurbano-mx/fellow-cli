@@ -63,6 +63,7 @@ If a future teammate prefers env-var auth (CI use, etc.), the loader checks `FEL
 
 ```
 fellow login | logout | me
+fellow install-skill                               # optional: drop SKILL.md into ~/.claude/skills/
 
 fellow meetings      list | get | export | open
 fellow recent                                      # sugar: meetings list --since 1d
