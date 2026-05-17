@@ -34,3 +34,22 @@ def test_error_with_debug_shows_traceback(tmp_path, monkeypatch):
         result = runner.invoke(cli, ["--debug", "recordings", "list"])
     assert result.exit_code != 0
     assert "Traceback" in result.output or "AuthError" in result.output
+
+
+def test_bad_date_filter_is_sentence_exit_1(tmp_path, monkeypatch):
+    _env(monkeypatch, tmp_path)
+    runner = CliRunner()
+    with patch("fellowai.commands.FellowClient"):
+        result = runner.invoke(cli, ["recordings", "list", "--since", "not-a-date"])
+    assert result.exit_code == 1
+    assert "Traceback" not in result.output
+    assert "Unrecognized date" in result.output
+
+
+def test_bad_date_filter_with_debug_shows_traceback(tmp_path, monkeypatch):
+    _env(monkeypatch, tmp_path)
+    runner = CliRunner()
+    with patch("fellowai.commands.FellowClient"):
+        result = runner.invoke(cli, ["--debug", "recordings", "list", "--since", "not-a-date"])
+    assert result.exit_code == 1
+    assert "Traceback" in result.output
