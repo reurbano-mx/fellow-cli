@@ -42,32 +42,38 @@ You can also set `FELLOWAI_SUBDOMAIN` and `FELLOWAI_API_KEY` as environment vari
 
 ## Three sample pipelines
 
-**1. Summarize this week's meetings — inside Claude Code (or any AI agent)**
+The expected usage is **inside Claude Code**: you ask Claude something, Claude runs `fellowai` for you, Claude reads the output and answers. You almost never type `fellowai` commands yourself.
 
-Just ask:
+**1. Summarize this week's meetings**
 
-> "Use fellowai to export this week's meeting transcripts to /tmp/week.md, then summarize the key decisions and risks."
+Type into Claude:
 
-The agent will run `fellowai recordings export --since 7d --with-transcript --format md --to /tmp/week.md`, read the file, and summarize. No extra tools needed.
+> Summarize this week's meetings — decisions made and open risks.
 
-For unattended automation (cron, scripts), pipe to a CLI LLM like Simon Willison's [`llm`](https://llm.datasette.io/):
+Claude will run `fellowai recordings export --since 7d --with-transcript --format md --to /tmp/week.md`, read the file, and write the summary inline.
+
+For unattended automation (cron, scripts) where there's no Claude in the loop, pipe to a CLI LLM like Simon Willison's [`llm`](https://llm.datasette.io/) instead:
 
 ```bash
 fellowai recordings export --since 7d --with-transcript --format md --to - \
   | llm "summarize the key decisions and risks from these meetings"
 ```
 
-**2. Interactively pick action items, pipe JSON to something**
+**2. Mark an action item complete**
+
+Type into Claude:
+
+> Mark action item Qew6RGHWoe as done.
+
+Claude will run `fellowai action-items complete Qew6RGHWoe --yes`. Same shape for `uncomplete` and `archive`.
+
+**3. Pick action items interactively (you, not Claude — needs a TTY)**
+
+The interactive picker can't run inside Claude Code because there's no real terminal for the checkbox UI. Run it yourself when you want to bulk-select:
 
 ```bash
 fellowai action-items pick --scope mine --not-completed \
   | jq '.[] | {text, due_date}'
-```
-
-**3. Mark a done thing done**
-
-```bash
-fellowai action-items complete <id> --yes
 ```
 
 ## Relationship to Fellow's MCP server
