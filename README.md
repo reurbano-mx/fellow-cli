@@ -44,28 +44,40 @@ You can also set `FELLOWAI_SUBDOMAIN` and `FELLOWAI_API_KEY` as environment vari
 
 The expected usage is **inside Claude Code**: you ask Claude something, Claude runs `fellowai` for you, Claude reads the output and answers. You almost never type `fellowai` commands yourself.
 
-**1. Summarize this week's meetings**
+Each example below shows the **English prompt** you type to Claude, with the **exact `fellowai` command Claude runs** right under it. If you'd rather skip the chat and run the command yourself, type the second line directly — either in your terminal, or prefixed with `!` inside Claude Code (`! fellowai ...`).
 
-Type into Claude:
+**1. Summarize this week's meetings**
 
 > Summarize this week's meetings — decisions made and open risks.
 
-Claude will run `fellowai recordings export --since 7d --with-transcript --format md --to /tmp/week.md`, read the file, and write the summary inline.
+```bash
+fellowai recordings export --since 7d --with-transcript --no-ai-notes \
+  --format md --to /tmp/week.md
+```
+
+Claude then reads `/tmp/week.md` and writes the summary inline. `--no-ai-notes` is intentional — the SKILL tells Claude to summarize from the raw transcript, not from Fellow's pre-generated AI notes.
 
 For unattended automation (cron, scripts) where there's no Claude in the loop, pipe to a CLI LLM like Simon Willison's [`llm`](https://llm.datasette.io/) instead:
 
 ```bash
-fellowai recordings export --since 7d --with-transcript --format md --to - \
+fellowai recordings export --since 7d --with-transcript --no-ai-notes --format md --to - \
   | llm "summarize the key decisions and risks from these meetings"
 ```
 
 **2. Mark an action item complete**
 
-Type into Claude:
-
 > Mark action item Qew6RGHWoe as done.
 
-Claude will run `fellowai action-items complete Qew6RGHWoe --yes`. Same shape for `uncomplete` and `archive`.
+```bash
+fellowai action-items complete Qew6RGHWoe --yes
+```
+
+Same shape for `uncomplete` and `archive`:
+
+```bash
+fellowai action-items uncomplete <id> --yes
+fellowai action-items archive <id> --yes
+```
 
 **3. Pick action items interactively (you, not Claude — needs a TTY)**
 
