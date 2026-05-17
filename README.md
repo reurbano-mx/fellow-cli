@@ -4,19 +4,23 @@ Unofficial CLI for [Fellow.ai](https://fellow.ai)'s developer API. Designed to c
 
 ## Install
 
-macOS / Linux:
+If you don't already have `uv`, install it first:
 
 ```bash
+# macOS / Linux
 curl -LsSf https://astral.sh/uv/install.sh | sh
-uv tool install fellowai
-```
 
-Windows (PowerShell):
-
-```powershell
+# Windows (PowerShell)
 irm https://astral.sh/uv/install.ps1 | iex
-uv tool install fellowai
 ```
+
+Then install `fellowai`:
+
+```bash
+uv tool install --prerelease=allow fellowai
+```
+
+(The `--prerelease=allow` flag is only needed while `fellowai` is on a release candidate. Drop it once `0.1.0` final ships.)
 
 ## Quick start
 
@@ -31,6 +35,10 @@ To create an API key: in Fellow, click your workspace name (top left) → **User
 `fellowai login` prints the workspace URL but does not auto-open your browser. Pass `--open-browser` if you want it to.
 
 You can also set `FELLOWAI_SUBDOMAIN` and `FELLOWAI_API_KEY` as environment variables (both required together) to bypass the config file — useful for CI.
+
+### ⚠️ Run `fellowai login` outside any AI agent
+
+`login` is the one command where you **type your API key**. If you run it inside Claude Code, Cursor, or any AI chat, the assistant sees your keystrokes. Run `fellowai login` once in a plain terminal. Every other `fellowai` command is safe to run inside an AI agent — the key is read from your 0o600 config file and sent only in the `X-API-KEY` HTTP header (never in URLs, output, or tracebacks).
 
 ## Three sample pipelines
 
