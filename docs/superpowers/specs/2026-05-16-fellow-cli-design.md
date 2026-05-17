@@ -70,7 +70,7 @@ The MCP exposes 5 read-only tools:
 ## Goals
 
 - Give Reurbano teammates a cross-platform CLI for Fellow that anyone can install in two commands.
-- **Headline use case:** ad-hoc terminal piping for LLM work (`fellowai recordings export --since 7d --include transcript --to - | llm ...`).
+- **Headline use case:** ad-hoc terminal piping for LLM work (`fellowai recordings export --since 7d --with-transcript --to - | llm ...`).
 - Expose exactly what Fellow's REST API exposes — no synthesized features.
 - Stay small and durable: do not absorb destinations (ClickUp, Linear, etc.); emit JSON and let other tools consume it.
 
@@ -81,7 +81,7 @@ The MCP exposes 5 read-only tools:
 - Watch/poll mode (re-implement via cron + `recordings list --since 1h --json` once we have it).
 - Pushing data to other systems (ClickUp, Notion, Linear). Out of scope by design.
 - Local caching layer. Defer.
-- Search. The public API has no search endpoint (the MCP server's `search_meetings` is MCP-internal or implemented elsewhere). Not synthesizing one.
+- Search. The public REST API has no search endpoint; the MCP server's `search_meetings` is MCP-only. Not synthesizing a client-side substitute.
 
 ## Distribution
 
@@ -296,10 +296,10 @@ $ fellowai me
 kramer@reurbano.mx  workspace: reurbano  key: ...d7f3 (last 4)
 
 $ fellowai recordings list --since 7d
-ID         TITLE                       STARTED              DURATION
-rec_abc12  Q2 planning                 2026-05-13 09:00     58m
-rec_def34  1:1 with Chris              2026-05-14 14:30     32m
-rec_ghi56  Vendor renewal call         2026-05-15 11:00     47m
+ID          TITLE                      STARTED              DURATION
+iZhUzNG7XN  Q2 planning                2026-05-13 09:00     58m
+pHCUNzhFqW  1:1 with Chris             2026-05-14 14:30     32m
+KqW9bL2tYx  Vendor renewal call        2026-05-15 11:00     47m
 
 $ fellowai recordings export --since 7d --with-transcript --format md --to - | \
     llm "summarize key decisions and risks from these meetings"
@@ -307,8 +307,8 @@ $ fellowai recordings export --since 7d --with-transcript --format md --to - | \
 $ fellowai action-items pick --scope mine --not-completed | \
     jq '.[] | {title, due_date}'
 
-$ fellowai action-items complete ai_xyz789 --yes
-✓ Marked complete: "Email vendor about renewal"
+$ fellowai action-items complete Qew6RGHWoe --yes
+✓ Marked Done: "Email vendor about renewal"
 ```
 
 ## Acceptance criteria — v1 ships when
@@ -367,7 +367,11 @@ Two distinct shapes returned by the API:
 
 The client maps both into sentence-shaped CLI errors. For Shape B, valid-options info in the error message (e.g., `"Input should be 'created_at_desc', 'created_at_asc' or 'due_date'"`) is surfaced to help the user fix bad input.
 
-**Critical client-side validation requirement:** unknown filter keys AND unknown include keys are **silently ignored** by the API. A typo like `--titel` would not error — it would silently return unfiltered data. The client MUST whitelist filter and include field names before sending; never pass user input through to the request body verbatim.
+**Critical client-side validation requirements:**
+
+- Unknown filter keys AND unknown include keys are **silently ignored** by the API. A typo like `--titel` would not error — it would silently return unfiltered data. The client MUST whitelist filter and include field names before sending; never pass user input through to the request body verbatim.
+- `page_size` must be `1 <= n <= 50`. The client validates client-side via Click (`type=click.IntRange(1, 50)`) so users get a fast, friendly error rather than a 400 with the Shape B validation envelope.
+- `order_by` must be one of the documented enum values; the client validates via Click `type=click.Choice([...])` against the live enum (`created_at_desc`, `created_at_asc`, `due_date`).
 
 **Subdomain validation gotcha:** a request to `https://wrong-subdomain.fellow.app/api/v1/me` returns the Fellow marketing site's HTML (HTTP 200), not a 404. `fellowai login` must verify the response is JSON, not just check HTTP status, or it'll silently "succeed" against a typo'd subdomain.
 
@@ -379,7 +383,7 @@ Examples of required error sentences:
 
 - **No config:** `No Fellow workspace configured. Run 'fellowai login' to set one up.`
 - **401:** `Your API key isn't valid for this workspace. Run 'fellowai login' to re-authenticate.`
-- **403 on media_url:** `media_url requires a privileged API key. Ask a workspace admin to provision one, or run without --include media_url.`
+- **`--with-media` returned null:** (stderr warning, not a fatal error) `Warning: media_url was requested but returned null. Your API key isn't privileged. Ask a workspace admin to provision a privileged key to download recording audio/video.`
 - **429:** `Rate limit hit (3/sec, 10,000/day per key). Slow down or wait a minute.`
 - **Network failure:** `Couldn't reach https://reurbano.fellow.app. Check your internet connection.`
 - **Bad ID:** `No recording with ID 'xyz123' (or you don't have access to it).`
@@ -408,7 +412,18 @@ fellowai/
 └── time_parse.py           # --since parser (relative + absolute)
 ```
 
-`client.py` is the single point of contact with Fellow's API. Every command goes through it. Pagination, retries (with backoff on 429/5xx), consistent error mapping live there. Exposes a Python iterator API: `for rec in client.list_recordings(filters=..., include=[...]): ...` — the iterator drives cursor pagination internally and respects `--limit` from the command layer.
+`client.py` is the single point of contact with Fellow's API. Every command goes through it. Pagination, retries (with backoff on 429/5xx), consistent error mapping live there. Exposes a Python iterator API:
+
+```python
+for rec in client.list_recordings(
+    filters={"created_at_start": "2026-05-01T00:00:00Z"},
+    include={"transcript": True, "ai_notes": True},
+    limit=50,
+):
+    ...
+```
+
+The iterator drives cursor pagination internally and respects the user's `--limit`. `filters` and `include` are typed dicts whose keys are whitelisted against the verified API schema — unknown keys raise client-side, before any HTTP call, to prevent the "silently ignored" failure mode.
 
 `output.py` is the single point of contact with stdout. Every command hands it `(data, shape_hint)`; output.py decides table vs JSON vs markdown based on TTY + flags.
 
@@ -486,8 +501,8 @@ Mark an action item complete:
 ## Error recovery
 
 - 401 ("API key isn't valid") → run `fellowai login`
-- 403 on `--with-media` → privileged API key required; ask a workspace
-  admin
+- `--with-media` returns null (with stderr warning) → API key isn't
+  privileged; ask a workspace admin to provision one
 - 429 → wait; rate limits are 3/sec, 10,000/day per key
 - Empty result is exit 0, not an error
 
