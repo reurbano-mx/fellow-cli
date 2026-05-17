@@ -1,7 +1,7 @@
 # fellowai — Design Spec
 
-**Date:** 2026-05-16
-**Status:** Draft for review (post-API-recon)
+**Date:** 2026-05-16 (updated after Playwright API recon)
+**Status:** Draft for review
 **Owner:** Kramer Sharp (primary users: Kramer + Chris, possibly half of Reurbano)
 **Command name:** `fellowai`
 
@@ -9,7 +9,7 @@
 
 Reurbano uses Fellow.ai for meeting recordings, transcripts, and action items. The official Fellow MCP server is available but has two problems:
 
-1. **Context tax.** MCP tool definitions stay loaded every turn. Seven Fellow tools means a permanent token cost on every Claude Code session, whether or not Fellow is used.
+1. **Context tax.** MCP tool definitions stay loaded every turn. A permanent token cost on every Claude Code session, whether or not Fellow is used.
 2. **Surface limits.** The MCP exposes a fixed shape; we can't compose its outputs cleanly with Unix pipes, can't batch-export, can't drive an interactive picker.
 
 A CLI fixes both. It costs zero permanent context (the agent reads `--help` only when needed), it composes with standard tools, and we control the surface.
@@ -17,17 +17,18 @@ A CLI fixes both. It costs zero permanent context (the agent reads `--help` only
 ## Goals
 
 - Give Reurbano teammates a cross-platform CLI for Fellow that anyone can install in two commands.
-- **Headline use case:** ad-hoc terminal piping for LLM work (`fellowai transcripts export --since 7d --to - | llm ...`).
+- **Headline use case:** ad-hoc terminal piping for LLM work (`fellowai recordings export --since 7d --include transcript --to - | llm ...`).
 - Expose exactly what Fellow's REST API exposes — no synthesized features.
 - Stay small and durable: do not absorb destinations (ClickUp, Linear, etc.); emit JSON and let other tools consume it.
 
 ## Non-goals (v1)
 
-- Write operations against Fellow (action-item updates/creates). Read-mostly; `login`/`logout` are the only state-changing commands.
-- Webhook subscription management.
-- Watch/poll mode for new meetings.
+- Recording deletion and note deletion (`DELETE /recording/{id}`, `DELETE /note/{id}` exist; dangerous; defer until needed).
+- Webhook management (Create/Retrieve/Update/Delete/List webhooks exist in the API; useful but bigger surface; defer).
+- Watch/poll mode (re-implement via cron + `recordings list --since 1h --json` once we have it).
 - Pushing data to other systems (ClickUp, Notion, Linear). Out of scope by design.
-- Local caching layer. Defer; add if `transcripts export` over large windows feels slow.
+- Local caching layer. Defer.
+- Search. The public API has no search endpoint (the MCP server's `search_meetings` is MCP-internal or implemented elsewhere). Not synthesizing one.
 
 ## Distribution
 
@@ -47,53 +48,96 @@ Teammate doc: those two lines plus `fellowai login`.
 
 ## Authentication
 
-**Per-user API key, workspace-scoped subdomain, stored in OS-standard config dir.** Never an environment variable, never a shared workspace key.
+Confirmed from `developers.fellow.ai/reference/authentication-1`:
 
-Fellow's API base URL is `https://{subdomain}.fellow.app/api/v1/...` — the subdomain identifies the workspace and must be captured at login.
+- Header: `X-API-KEY: <key>`
+- Base URL: `https://{subdomain}.fellow.app/api/v1`
+- Keys are user-scoped, generated in Fellow's User Settings → Developer API (workspace admin must enable the Developer API in Security settings first).
+- Access mirrors in-app access: API users only see meetings, recordings, and notes they can already see in Fellow.
+- Workspace admins can see key names and last-used timestamps; they cannot see the secret itself.
 
 `fellowai login` flow:
 
 1. Prompt for workspace subdomain (`reurbano` if `https://reurbano.fellow.app`).
 2. Auto-open `https://{subdomain}.fellow.app/settings/api-keys` in the default browser.
 3. Prompt for the pasted API key.
-4. Validate by calling a known endpoint (`POST /api/v1/action_items` with `pagination: {limit: 1}`) — confirms both subdomain and key in one call. Bad key/subdomain fails fast with a sentence-shaped error.
+4. Validate with `GET /api/v1/me` (confirmed endpoint). Bad subdomain/key fails fast with a sentence-shaped error.
 5. Write to platform config path (`~/.config/fellowai/config.toml` on Linux, `~/Library/Application Support/fellowai/config.toml` on macOS, `%APPDATA%\fellowai\config.toml` on Windows) via `platformdirs`. File mode 600 on POSIX.
 
-`fellowai logout` deletes the stored config. `fellowai me` prints the active subdomain and a redacted key identifier.
+`fellowai logout` deletes the stored config. `fellowai me` calls `GET /me` and prints the authenticated identity plus the active subdomain.
 
-Env-var override: `FELLOWAI_API_KEY` + `FELLOWAI_SUBDOMAIN` for CI/scripts. Documented as advanced use, not the recommended path.
+Env-var override for CI/scripts: `FELLOWAI_API_KEY` + `FELLOWAI_SUBDOMAIN`. Documented as advanced, not the recommended path.
+
+## API surface (verified)
+
+The complete public REST API as of 2026-05-16, confirmed via Playwright crawl of `developers.fellow.ai/reference/*`:
+
+| Resource | Operation | Method | Path |
+|-|-|-|-|
+| Users | Get authenticated user | GET | `/me` |
+| Recordings | Retrieve | GET | `/recording/{id}` |
+| Recordings | List | POST | `/recordings` |
+| Recordings | Delete | DELETE | `/recording/{id}` |
+| Notes | Retrieve | GET | `/note/{id}` |
+| Notes | List | POST | `/notes` |
+| Notes | Delete | DELETE | `/note/{id}` |
+| Action Items | Retrieve | GET | `/action_item/{id}` |
+| Action Items | List | POST | `/action_items` |
+| Action Items | Mark complete | POST | (slug: `mark_action_item_complete`) |
+| Action Items | Archive | POST | (slug: `archive_action_item`) |
+| Webhooks | Create/Retrieve/Update/Delete/List | POST/GET/PATCH/DELETE/GET | — |
+
+Notable findings:
+
+- **Transcripts and AI summaries are nested fields on the Recording resource**, not separate endpoints. The Recording response includes `transcript`, `ai_notes` (with sub-types: Key Moments, Topics, Action Items, Decisions, free text), `media_url` (pre-signed audio/video URL — requires a *privileged* API key), and metadata (`title`, `started_at`, `ended_at`, `note_id`).
+- **The `include` parameter on list/retrieve endpoints controls expensive fields.** Transcript and `ai_notes` are NOT returned by default; you must request them via `include`. This matters for performance — list calls without `include` are fast.
+- **Notes are a distinct resource from Recordings.** A Recording's `note_id` links to the corresponding Note. Notes hold the structured/editable meeting note document (agenda, decisions, human-written content).
+- **Action items are flat** — not nested in recordings — with their own list/retrieve plus `complete` and `archive` write operations.
+
+## Pagination, rate limits, errors
+
+Confirmed:
+
+- **Pagination is cursor-based**, request body shape: `{ "pagination": { "cursor": null|string, "page_size": 1-50 } }` (default page_size 20). Response wraps results in `{ "page_info": { "cursor": null|string, "page_size": int }, "data": [...] }`. Null cursor in response signals end of results.
+- **Rate limits per API key:** 3 requests/second, 10,000 requests/day. Limit exceeded returns HTTP 429 with error code `rate_limited`.
+- **Auth failures:** HTTP 401 for missing/invalid key.
+- The client honors any `Retry-After` header on 429 and uses exponential backoff on 5xx (max 3 retries).
 
 ## Command surface
 
 ```
 fellowai login | logout | me
-fellowai install-skill                              # drop SKILL.md into ~/.claude/skills/
+fellowai install-skill                                # drop SKILL.md into ~/.claude/skills/
 
-fellowai meetings      list | get | export | open
-fellowai recent                                     # sugar: meetings list --since 1d
-fellowai transcripts   get | export
-fellowai summaries     get
-fellowai notes         get
-fellowai action-items  list | get | pick            # pick = interactive TUI → JSON on stdout
-fellowai channels      list | get
-fellowai participants  list
-fellowai search        "<query>" [--since 30d] [--limit 20]
+fellowai recordings   list | get | export
+fellowai notes        list | get | export
+fellowai action-items list | get | pick | complete | archive
 ```
 
-All list commands support:
-- `--since <relative-or-absolute>` — `7d`, `2026-04-01`, `2w` (single parser)
-- `--channel <name-or-id>`, `--participant <email>` where applicable
-- `--limit <n>` (default 50)
+Common flags on all list commands:
 
-All `get` commands take a single resource ID.
+- `--since <relative-or-absolute>` — `7d`, `2026-04-01`, `2w` (single parser; mapped into a `filters` body field)
+- `--limit <n>` — total max records returned across all pages (default 50; the client paginates underneath)
+- `--page-size <n>` — per-page size for the underlying API call (1–50, default 20)
 
-All `export` commands take `--to <path | ->` and `--format <json|md|both>`:
-- `--to <path>` writes to a directory, one file per resource named `<id>.json` / `<id>.md`. `--format both` writes both files per resource.
-- `--to -` writes to stdout. `--format json` emits a JSON array; `--format md` emits concatenated markdown with `---` separators; `--format both` is rejected for stdout (ambiguous concatenation).
+Resource-specific flags:
 
-`fellowai open <meeting-id>` opens the meeting in the Fellow web UI via the default browser.
+- `recordings list/get/export` accept `--include <fields>` — comma-separated subset of `transcript`, `ai_notes`, `media_url`. `media_url` requires a privileged API key; we'll detect the resulting 403 and produce a sentence error if a non-privileged key requests it.
+- `action-items list` accepts `--assignee <email|me>`, `--scope <mine|others|all>` (maps to the documented `assigned_to_me`/`assigned_to_others` filter).
 
-`fellowai search` maps to Fellow's native meeting search (confirmed available via the MCP server, exact REST path TBD during implementation).
+`export` for recordings and notes:
+
+- `--to <path | ->` — writes to a directory (one file per resource: `<id>.<ext>`) or stdout (`-`)
+- `--format <json|md|both>` — for `--to <path>`: `both` writes `<id>.json` + `<id>.md` per resource. For `--to -`: `both` is rejected (concatenation ambiguous).
+- Markdown rendering for a Recording: title + dates + `transcript` (if included) rendered as `[speaker]: text` lines + `ai_notes` rendered with section headers.
+
+`action-items complete <id>` and `archive <id>` are the only write commands in v1. They are confirmed-via-prompt by default (`--yes` to skip). Action-item completion is so naturally part of the picker workflow that read-only v1 would leave the picker half-functional.
+
+`action-items pick` is the interactive TUI:
+- Spacebar toggles selection, arrows navigate, `/` filters by substring
+- Enter confirms — prints selected items as JSON array to stdout, exits 0
+- `q` cancels — exits 1, nothing printed
+- Implementation: `questionary` (cross-platform, no native deps)
 
 ## Output format rules
 
@@ -101,24 +145,12 @@ All `export` commands take `--to <path | ->` and `--format <json|md|both>`:
 |-|-|
 | List commands on TTY | Pretty table |
 | List commands when piped/redirected | JSON array (compact) |
-| `get` on document-y resources (transcripts, summaries, notes) | Markdown — TTY and piped both |
-| `get` on metadata resources (meetings get, action-items get, channels get) | Pretty "card" on TTY, JSON when piped |
+| `get` on Recording or Note (document-y) | Markdown — TTY and piped both |
+| `get` on Action Item (metadata) | Pretty card on TTY, JSON when piped |
 | Any command with `--json` | JSON, overrides above |
 | Any command with `--md` | Markdown, overrides above |
 
 TTY detection: `sys.stdout.isatty()`.
-
-## Interactive picker
-
-`fellowai action-items pick` opens a TUI listing recent action items with checkboxes:
-
-- Spacebar toggles selection, arrows navigate, `/` filters by substring
-- Enter confirms — prints selected items as JSON array to stdout, exits 0
-- `q` cancels — exits 1, nothing printed
-
-Implementation: `questionary` (cross-platform including Windows, no native deps).
-
-Picker is the only TUI in v1. Its sole job: select Fellow items, emit JSON. Destination (ClickUp push, etc.) is a separate tool/skill consuming stdin.
 
 ## Error UX
 
@@ -126,13 +158,15 @@ Errors must be sentence-shaped, never tracebacks. Designed for teammates who don
 
 Examples of required error sentences:
 
-- **Bad/missing config:** `No Fellow workspace configured. Run 'fellowai login' to set one up.`
-- **401/403:** `Your API key isn't valid for this workspace. Run 'fellowai login' to re-authenticate.`
+- **No config:** `No Fellow workspace configured. Run 'fellowai login' to set one up.`
+- **401:** `Your API key isn't valid for this workspace. Run 'fellowai login' to re-authenticate.`
+- **403 on media_url:** `media_url requires a privileged API key. Ask a workspace admin to provision one, or run without --include media_url.`
+- **429:** `Rate limit hit (3/sec, 10,000/day per key). Slow down or wait a minute.`
 - **Network failure:** `Couldn't reach https://reurbano.fellow.app. Check your internet connection.`
-- **Bad ID:** `No meeting with ID 'xyz123' (or you don't have access to it).`
-- **Stdin closed during pick:** `Action item picker requires a terminal. Run interactively, or pipe a meeting ID list to '... list' instead.`
+- **Bad ID:** `No recording with ID 'xyz123' (or you don't have access to it).`
+- **Picker without TTY:** `Action item picker requires a terminal. Run interactively, or pipe a JSON list to a downstream tool instead.`
 
-`--debug` flag attaches the underlying traceback and HTTP details to stderr for support requests. Without it, never leak a traceback.
+`--debug` attaches the underlying traceback and HTTP details to stderr for support requests. Without it, never leak a traceback.
 
 Exit codes: 0 success, 1 user-caused (no results, cancelled picker, bad input), 2 system (network, auth, server error).
 
@@ -148,39 +182,23 @@ fellowai/
 ├── client.py               # FellowClient (httpx), auth, pagination, retry, error mapping
 ├── commands/
 │   ├── auth.py             # login, logout, me, install-skill
-│   ├── meetings.py
-│   ├── transcripts.py
-│   ├── summaries.py
+│   ├── recordings.py
 │   ├── notes.py
-│   ├── action_items.py     # includes interactive pick
-│   ├── channels.py
-│   ├── participants.py
-│   └── search.py
+│   └── action_items.py     # includes interactive pick + complete + archive
 ├── output.py               # TTY detection, JSON/table/markdown rendering
 └── time_parse.py           # --since parser (relative + absolute)
 ```
 
-`client.py` is the single point of contact with Fellow's API. Every command goes through it. Pagination, retries (with backoff on 429/5xx), consistent error mapping live there.
+`client.py` is the single point of contact with Fellow's API. Every command goes through it. Pagination, retries (with backoff on 429/5xx), consistent error mapping live there. Exposes a Python iterator API: `for rec in client.list_recordings(filters=..., include=[...]): ...` — the iterator drives cursor pagination internally and respects `--limit` from the command layer.
 
 `output.py` is the single point of contact with stdout. Every command hands it `(data, shape_hint)`; output.py decides table vs JSON vs markdown based on TTY + flags.
 
-## API client behavior
-
-- Base URL: `https://{subdomain}.fellow.app/api/v1` (subdomain from config).
-- Auth header: name TBD during implementation (`X-API-KEY` likely based on search hits; confirm with real key).
-- **List endpoints use POST with JSON body** (confirmed for action_items): `{pagination, filters, order_by, include}`. The client exposes a Python iterator that handles pagination internally; commands consume it.
-- Retry: 429 honors `Retry-After`; 5xx uses exponential backoff (max 3 retries).
-- 401/403 produces the sentence error pointing at `fellowai login`.
-- Network errors produce a sentence error; exit 2.
-- `--debug` enables `httpx` request/response logging to stderr.
-
 ## Privacy & telemetry
 
-**No telemetry. Zero.** No usage pings, no error reporting that leaves the laptop. Important for a meeting-data tool — and a small team doesn't need it.
+**No telemetry. Zero.** No usage pings, no error reporting that leaves the laptop. Important for a meeting-data tool.
 
 Local files written by the CLI:
 - Config: subdomain + API key (mode 600).
-- Cache (when added later): under platform cache dir; never includes raw transcripts unless cache feature is opt-in.
 - Exports: wherever `--to` points. User's responsibility.
 
 No file is sent anywhere except direct API calls to `*.fellow.app`.
@@ -190,7 +208,7 @@ No file is sent anywhere except direct API calls to `*.fellow.app`.
 - Pre-1.0: `v0.x`. Breaking changes possible at any minor bump.
 - Users who need stability: `uv tool install 'fellowai==0.3.*'`.
 - Changelog kept in `CHANGELOG.md`; every release notes any breaking change at the top.
-- Cut 1.0 only when the surface has been stable for a month and we're confident in the API.
+- Cut 1.0 only when the surface has been stable for a month.
 
 ## Testing
 
@@ -200,44 +218,23 @@ No file is sent anywhere except direct API calls to `*.fellow.app`.
 
 ## Agent discoverability
 
-A `SKILL.md` ships inside the package. `fellowai install-skill` copies it into `~/.claude/skills/fellowai/` (or platform equivalent). The skill teaches Claude Code: which commands exist, when to use `--json`, common pipe patterns, error recovery.
+A `SKILL.md` ships inside the package. `fellowai install-skill` copies it into `~/.claude/skills/fellowai/`. The skill teaches Claude Code: which commands exist, when to use `--json`, common pipe patterns (`recordings export --include transcript --to - | llm ...`), error recovery (`fellowai login` on 401).
 
-Bundling rationale: keeps skill version in lockstep with installed CLI version. Generating SKILL.md from `--help` at install time is a future refinement, not v1.
+## Open questions to resolve during implementation
 
-## What we know vs what we'll confirm in implementation
+These need a real API key to confirm; none block the design:
 
-**Verified from public docs:**
-- Workspace-scoped subdomain in URL (`https://{subdomain}.fellow.app/api/v1`).
-- `POST /api/v1/action_items` for listing, with body-based pagination/filters/order/include.
-- `GET /api/v1/action_item/{id}` for retrieval.
-- Per-user API keys, generated in Fellow's User Settings → Developer Tools.
-- Permission-aware (API users see only what they can see in the app).
-- 90-day audit logging on Fellow's side.
-
-**Strongly implied from the Fellow MCP server's tool list** (the MCP almost certainly wraps the REST API):
-- meetings list/get
-- meeting transcripts (per meeting)
-- meeting summaries (per meeting)
-- meeting participants (per meeting)
-- channels list/get
-- meeting search
-
-For these, the exact REST paths and request shapes will be confirmed during implementation by probing with a real API key. The spec assumes a consistent pattern with the action-items endpoints: lists are POST-with-body, retrievals are GET-by-id.
-
-**Will need to confirm with the live API:**
-- Auth header name (`X-API-KEY` vs `Authorization: Bearer`).
-- Whether summaries and agendas have first-class endpoints or are nested in the meeting response — if nested, drop `summaries get` and expose via `meetings get --include summary`.
-- Exact pagination cursor/token shape.
-- Rate limits.
-- Assignee filter format (email vs user ID).
-
-**Risk if the API turns out to be narrower than the MCP suggests:** v1 ships fewer commands than the spec lists, and we document what's not yet available. The architecture (single client, single output module, command-per-resource) absorbs this cleanly.
+1. Exact request-body field name for `--since` filtering on each list endpoint (likely `started_after`/`started_before` or similar on Recording).
+2. Whether the privileged-vs-non-privileged distinction is determined by the key itself (admin-issued vs user-issued) or by some scope on the request.
+3. The exact body parameters for `mark_action_item_complete` and `archive_action_item` (probably just an ID; possibly additional flags).
+4. Whether `--include transcript` returns transcript inline or as a sub-URL that needs a second fetch.
 
 ## Out of scope, captured for later
 
+- Recording/note deletion (`DELETE` endpoints exist).
+- Webhook management (full Create/Retrieve/Update/Delete/List surface exists).
+- Watch/poll mode.
 - ClickUp / Linear / Notion push (separate tools or skills consuming `pick` stdout).
-- Write operations on action items.
-- Watch/poll mode and webhook subscriptions.
 - Caching layer.
 - Homebrew tap / scoop / winget — layer on top of PyPI later if `uv tool install` friction proves real.
 - Generating SKILL.md from `--help` at install time.
