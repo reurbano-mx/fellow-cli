@@ -1,5 +1,6 @@
 import json
 
+import httpx
 import pytest
 import respx
 from httpx import Response
@@ -8,6 +9,7 @@ from fellowai.client import (
     AuthError,
     BadRequestError,
     FellowClient,
+    NetworkError,
     NotFoundError,
     RateLimitError,
     ServerError,
@@ -304,3 +306,12 @@ def test_archive_action_item():
 def test_rejects_unknown_action_item_order():
     with pytest.raises(ValueError, match="order_by"):
         list(_client().list_action_items(order_by="alphabetical"))
+
+
+@respx.mock
+def test_network_error_maps_to_NetworkError():
+    respx.get("https://test.fellow.app/api/v1/me").mock(
+        side_effect=httpx.ConnectError("DNS resolution failed")
+    )
+    with pytest.raises(NetworkError, match="Couldn't reach"):
+        _client().get_me()

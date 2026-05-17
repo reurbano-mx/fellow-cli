@@ -33,6 +33,10 @@ class ServerError(FellowError):
     """5xx from API."""
 
 
+class NetworkError(FellowError):
+    """Network-level failure (DNS, timeout, refused connection)."""
+
+
 ALLOWED_RECORDING_FILTERS: frozenset[str] = frozenset({
     "event_guid", "created_at_start", "created_at_end",
     "updated_at_start", "updated_at_end", "channel_id", "title",
@@ -73,7 +77,13 @@ class FellowClient:
         url = f"{self._base}{path}"
         attempt = 0
         while True:
-            resp = self._http.request(method, url, json=json_body)
+            try:
+                resp = self._http.request(method, url, json=json_body)
+            except httpx.RequestError as e:
+                raise NetworkError(
+                    f"Couldn't reach https://{self._subdomain}.fellow.app. "
+                    "Check your internet connection."
+                ) from e
             if resp.status_code == 429 and attempt < self._MAX_RETRIES:
                 wait = float(resp.headers.get("Retry-After", 2**attempt))
                 time.sleep(wait)
