@@ -98,8 +98,62 @@ class FellowClient:
     def get_recording(self, recording_id: str) -> dict:
         return self._request("GET", f"/recording/{recording_id}")
 
-    def list_recordings(self, *, page_size: int = 20) -> Iterator[dict]:
-        # Full pagination + filters in Task 5/7. Stub for now.
-        body = {"pagination": {"cursor": None, "page_size": page_size}}
-        data = self._request("POST", "/recordings", json_body=body)
-        yield from data["recordings"]["data"]
+    def list_recordings(
+        self,
+        *,
+        filters: dict | None = None,
+        include: dict | None = None,
+        media_url: dict | None = None,
+        order_by: str | None = None,
+        limit: int | None = None,
+        page_size: int = 20,
+    ) -> Iterator[dict]:
+        return self._paginate(
+            "/recordings",
+            response_key="recordings",
+            filters=filters,
+            include=include,
+            extra_body={"media_url": media_url} if media_url else None,
+            order_by=order_by,
+            limit=limit,
+            page_size=page_size,
+        )
+
+    def _paginate(
+        self,
+        path: str,
+        *,
+        response_key: str,
+        filters: dict | None,
+        include: dict | None,
+        extra_body: dict | None = None,
+        order_by: str | None = None,
+        limit: int | None,
+        page_size: int,
+    ) -> Iterator[dict]:
+        if not 1 <= page_size <= 50:
+            raise ValueError("page_size must be between 1 and 50")
+
+        cursor: str | None = None
+        yielded = 0
+        while True:
+            body: dict = {"pagination": {"cursor": cursor, "page_size": page_size}}
+            if filters:
+                body["filters"] = filters
+            if include:
+                body["include"] = include
+            if order_by:
+                body["order_by"] = order_by
+            if extra_body:
+                body.update(extra_body)
+
+            data = self._request("POST", path, json_body=body)
+            page = data[response_key]
+            for item in page["data"]:
+                if limit is not None and yielded >= limit:
+                    return
+                yield item
+                yielded += 1
+            cursor = page["page_info"]["cursor"]
+            if cursor is None:
+                return
