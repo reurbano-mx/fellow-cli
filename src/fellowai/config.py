@@ -38,52 +38,70 @@ def _config_path() -> Path:
     return _config_dir() / "config.toml"
 
 
-def _verify_dir(d: Path) -> None:
-    """Refuse anything that isn't a real, user-owned directory."""
-    st = d.lstat()
+def _verify_dir_fd(fd: int, path_for_errors: Path) -> None:
+    """Refuse anything that isn't a real, user-owned directory (fd-based)."""
+    st = os.fstat(fd)
     if not stat.S_ISDIR(st.st_mode):
         raise ConfigError(
-            f"Refusing to write config: {d} is not a directory."
+            f"Refusing to write config: {path_for_errors} is not a directory."
         )
     if st.st_uid != os.getuid():
         raise ConfigError(
-            f"Refusing to write config: {d} is not owned by the current user."
+            f"Refusing to write config: {path_for_errors} is not owned by the current user."
         )
 
 
 def _prepare_config_dir(parent: Path) -> None:
     """Create the config dir tree as 0o700 on POSIX; reject unsafe components.
 
-    Without this, mkdir(parents=True) honors the process umask, so under a
-    permissive umask any newly-created ancestor — not just the leaf —
-    could end up world-writable. A local attacker with write access to an
-    intermediate dir could rename or replace the leaf between the chmod
-    here and the os.replace in save_config.
+    Race-free version: every dir is opened with O_DIRECTORY|O_NOFOLLOW so a
+    symlink swap between mkdir and chmod can never trick us into chmod'ing
+    an attacker-chosen target. Ownership and mode are verified via
+    fstat/fchmod on the open fd, never via pathname after a lookup.
     """
     if os.name != "posix":
         parent.mkdir(parents=True, exist_ok=True)
         return
 
-    # Identify missing ancestors so we can create + harden each one.
-    missing: list[Path] = []
+    # Identify missing components (top-down) and the lowest existing base.
+    components: list[str] = []
     cur = parent
     while not cur.exists():
-        missing.append(cur)
+        components.append(cur.name)
         cur = cur.parent
+    components.reverse()
+    base = cur
 
-    # Create top-down. mode=0o700 is umask-ANDed (so it can land permissive
-    # under umask 000); follow up with explicit chmod and lstat-verify.
-    for d in reversed(missing):
-        d.mkdir(mode=0o700, exist_ok=False)
-        os.chmod(d, 0o700)
-        _verify_dir(d)
+    # Open the base directory without following symlinks at the leaf.
+    fds: list[int] = []
+    try:
+        fds.append(os.open(base, os.O_DIRECTORY | os.O_NOFOLLOW))
 
-    # Re-validate the leaf and tighten group/world bits if a pre-existing
-    # dir was permissive.
-    _verify_dir(parent)
-    mode = stat.S_IMODE(parent.lstat().st_mode)
-    if mode & 0o077:
-        os.chmod(parent, mode & 0o700)
+        # Walk down, creating + verifying + fchmod'ing each missing component.
+        rebuilt = base
+        for name in components:
+            rebuilt = rebuilt / name
+            os.mkdir(name, mode=0o700, dir_fd=fds[-1])
+            new_fd = os.open(
+                name, os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fds[-1]
+            )
+            fds.append(new_fd)
+            _verify_dir_fd(new_fd, rebuilt)
+            os.fchmod(new_fd, 0o700)
+
+        # The leaf fd is fds[-1]. If parent already existed (no components
+        # added), fds[-1] is the base/leaf. Verify and tighten its mode.
+        leaf_fd = fds[-1]
+        _verify_dir_fd(leaf_fd, parent)
+        mode = stat.S_IMODE(os.fstat(leaf_fd).st_mode)
+        if mode & 0o077:
+            os.fchmod(leaf_fd, mode & 0o700)
+    finally:
+        for fd in fds:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
 
 
 def save_config(cfg: Config) -> None:

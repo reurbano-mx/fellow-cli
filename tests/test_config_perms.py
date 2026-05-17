@@ -121,8 +121,8 @@ def test_save_config_rejects_dir_not_owned_by_user(tmp_path, monkeypatch):
     import pytest
     from unittest.mock import patch as mock_patch
 
-    # Fake the directory's uid as something other than os.getuid().
-    real_stat = os.stat
+    # Fake the directory fd's uid as something other than os.getuid().
+    real_fstat = os.fstat
     real_uid = os.getuid()
 
     class FakeStat:
@@ -130,13 +130,14 @@ def test_save_config_rejects_dir_not_owned_by_user(tmp_path, monkeypatch):
             self.st_uid = real_uid + 1  # not us
             self.st_mode = st.st_mode
 
-    def fake_stat(path, *args, **kwargs):
-        st = real_stat(path, *args, **kwargs)
-        if str(path) == str(tmp_path):
-            return FakeStat(st)
-        return st
+    def fake_fstat(fd, *args, **kwargs):
+        st = real_fstat(fd, *args, **kwargs)
+        # All dir fds opened by _prepare_config_dir hit this; any of them
+        # reporting a foreign owner must raise. We can't tell which fd is
+        # which from the fd number alone, so just mark every dir fstat.
+        return FakeStat(st)
 
-    with mock_patch("fellowai.config.os.stat", side_effect=fake_stat):
+    with mock_patch("fellowai.config.os.fstat", side_effect=fake_fstat):
         with pytest.raises(ConfigError, match="not owned by the current user"):
             save_config(Config(subdomain="test", api_key="secretkey"))
 
@@ -162,3 +163,31 @@ def test_save_config_hardens_every_created_intermediate_dir(tmp_path, monkeypatc
             f"intermediate {d} has group/world bits: {oct(mode)}"
         )
         assert mode & 0o700 == 0o700
+
+
+def test_save_config_rejects_symlink_at_intermediate_component(tmp_path, monkeypatch):
+    """A symlink planted where an ancestor would be created must be refused,
+    and no chmod must reach the symlink target."""
+    if os.name != "posix":
+        return
+
+    # Set up: tmp/a will exist as a symlink pointing to tmp/victim.
+    victim = tmp_path / "victim"
+    victim.mkdir()
+    os.chmod(victim, 0o755)
+
+    # Plant a symlink at tmp/a -> victim, then aim FELLOWAI_CONFIG_DIR at
+    # tmp/a/b. The walk should reach tmp/a (exists, but is a symlink) and
+    # refuse to open it with O_NOFOLLOW.
+    link = tmp_path / "a"
+    os.symlink(victim, link)
+
+    nested = link / "b"
+    monkeypatch.setenv("FELLOWAI_CONFIG_DIR", str(nested))
+
+    import pytest
+    with pytest.raises((ConfigError, OSError)):
+        save_config(Config(subdomain="test", api_key="secretkey"))
+
+    # The symlink target's perms must not have been changed.
+    assert stat.S_IMODE(victim.stat().st_mode) == 0o755
