@@ -138,10 +138,12 @@ Endpoint list confirmed via Playwright crawl of `developers.fellow.ai/reference/
 
 **ActionItem**:
 - `id, text, status, created_at, updated_at, due_date, note_id, assignees, completion_type, ai_detected, recording_offset, ai_suggestion_accepted_by_user`
-- `status` is a **string**: `"Incomplete"` or `"Complete"` (for display)
+- `status` is a **string** with three states: `"Incomplete"`, `"Done"`, `"Archived"`
 - `assignees` is an **array**: `[{id, full_name, email}, ...]`
 - `recording_offset` is seconds into the source recording where the item was extracted (enables future "jump to moment" feature)
-- **Asymmetry**: the *filter* uses `completed: boolean`, but the *response* uses `status: string`. The client maps between them.
+- **Filter ↔ response asymmetry**: the `completed: boolean` filter matches against `status == "Done"`; `archived: boolean` matches against `status == "Archived"`. The client maps between flag names and status strings.
+- **Side effect of mark-complete**: calling the complete endpoint flips `ai_suggestion_accepted_by_user` to `true` and **does not flip it back** when calling uncomplete. Document this; users should know that "completing then uncompleting" is not fully reversible.
+- **Archive is one-way**: no unarchive endpoint exists in the public API. Archiving is idempotent (calling twice returns the same state). UI is the only way to unarchive.
 
 ### media_url behavior — corrected from earlier draft
 
@@ -312,6 +314,33 @@ $ fellowai action-items complete ai_xyz789 --yes
 
 TTY detection: `sys.stdout.isatty()`.
 
+## Error responses (verified)
+
+Two distinct shapes returned by the API:
+
+**Shape A — simple `detail`:**
+```json
+{"detail": "Unauthorized"}                                    // 401
+{"detail": "Recording not found"}                             // 404
+{"detail": "Invalid recording ID format"}                     // 400 (bad ID format)
+{"detail": "Invalid cursor: deadbeef"}                        // 400 (bad cursor)
+{"detail": "Cannot parse request body"}                       // 400 (malformed JSON)
+```
+
+**Shape B — structured validation errors:**
+```json
+{
+  "message": "Request could not be completed due to validation errors.",
+  "errors": [{"location": "page_size", "message": "Input should be less than or equal to 50"}]
+}
+```
+
+The client maps both into sentence-shaped CLI errors. For Shape B, valid-options info in the error message (e.g., `"Input should be 'created_at_desc', 'created_at_asc' or 'due_date'"`) is surfaced to help the user fix bad input.
+
+**Critical client-side validation requirement:** unknown filter keys AND unknown include keys are **silently ignored** by the API. A typo like `--titel` would not error — it would silently return unfiltered data. The client MUST whitelist filter and include field names before sending; never pass user input through to the request body verbatim.
+
+**Subdomain validation gotcha:** a request to `https://wrong-subdomain.fellow.app/api/v1/me` returns the Fellow marketing site's HTML (HTTP 200), not a 404. `fellowai login` must verify the response is JSON, not just check HTTP status, or it'll silently "succeed" against a typo'd subdomain.
+
 ## Error UX
 
 Errors must be sentence-shaped, never tracebacks. Designed for teammates who don't read Python.
@@ -442,16 +471,20 @@ Mark an action item complete:
 
 ## Open questions to resolve during implementation
 
-Most prior unknowns are now answered by direct probes. Remaining:
+Almost all prior unknowns are now answered by direct probes. Remaining:
 
-1. Full filter set for Notes beyond `created_at_start` (Recordings has `updated_at_*`, `channel_id`, `title`, `event_guid` — confirm Notes accepts the same set by probing at implementation time).
-2. Whether there's a `MediaUrlConfig` expiration parameter (probed with `include.media_url=true` only; the documented `media_url: MediaUrlConfig` top-level body field may give finer control).
-3. Rate-limit response body shape — only the documented spec (HTTP 429 + `rate_limited` code) is confirmed; want to capture the exact error JSON when implementing the retry layer.
+1. Full filter set for Notes (Recordings has `updated_at_*`, `channel_id`, `title`, `event_guid` — Notes accepts `created_at_start` for sure; whether it accepts the others returned an opaque "Invalid filters: Invalid ID format" error on a multi-filter probe, suggesting some are valid but require correct ID format. Per-filter probe at implementation time.)
+2. Exact `MediaUrlConfig` body shape (we probed with `{expiration_seconds: 3600}` and it didn't error but also didn't change behavior because the test key was non-privileged).
+3. Rate-limit response body shape — only the documented spec (HTTP 429 + `rate_limited` code) is confirmed; want to capture the exact JSON when implementing the retry layer (we never hit a 429 during recon).
 
 ## Out of scope, captured for later
 
 - Recording/note deletion (`DELETE` endpoints exist).
-- Webhook management (full Create/Retrieve/Update/Delete/List surface exists).
+- **Webhook management** (full Create/Retrieve/Update/Delete/List surface exists; details captured below for future implementation):
+  - Paths: `POST /webhook` (create), `GET /webhook/{id}`, `PATCH /webhook/{id}`, `DELETE /webhook/{id}`, `GET /webhooks` (list)
+  - Create body required fields: `url` (string), `enabled_events` (array)
+  - Valid event types: `action_item.assigned`, `action_item.completed`, `ai_note.generated`, `ai_note.shared_to_channel`. **No `recording.created` event** — automation is action-item and ai-note shaped, not recording shaped.
+  - **Live URL verification at create**: Fellow pings the webhook URL during create and rejects if it doesn't return 200. (`{"detail": "Failed to verify webhook URL: Webhook URL returned status 405, expected 200"}`.) Webhook receivers must be deployed and reachable before registering.
 - Watch/poll mode.
 - ClickUp / Linear / Notion push (separate tools or skills consuming `pick` stdout).
 - Caching layer.
