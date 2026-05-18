@@ -15,7 +15,39 @@ Run `fellowai --help` for the current surface.
 
 - **MCP**: natural-language questions, semantic search across meetings
 - **This CLI**: scripted exports, pipelines, action-item write ops,
-  audio download, anything outside an MCP-aware chat client
+  anything outside an MCP-aware chat client
+
+### Capability matrix
+
+|Capability|CLI|MCP|
+|-|-|-|
+|`/me` identity|yes|implicit (no tool — scoped to caller)|
+|List recordings with deterministic filters (event_guid, dates, channel_id, title)|yes|no|
+|Fetch single recording / signed media URL|yes (`--with-media`)|yes (in `search_meetings` results: `video_url`, `poster_url`)|
+|Fetch note body as markdown (`content_markdown`)|yes|no (only the structured `note` text)|
+|Pagination cursor|yes|no|
+|Action items: list|yes (filters: scope, completed, archived, ai_detected)|yes (filters: from/to_date, is_overdue, meeting_ids, note_id, topic, team)|
+|Action items: complete / archive|yes|no (read-only)|
+|Semantic search over transcripts / summaries|no|yes (`search_meetings`)|
+|Transcript with time-range slicing & multi-part `recording_id`|no|yes|
+|List channels / channel details / members|no|yes|
+|Meeting participants (attendees ∪ note users)|no|yes|
+
+### ID-scheme gotcha when bridging MCP → CLI
+
+The two surfaces use different id encodings for the same resources:
+
+- `meeting_id` (MCP) ≈ `event_guid` (CLI filter). Opaque string,
+  e.g. `6d9q61e3cbgst24kjilp65g7go`. Same value, different name.
+- `note_id` is returned by MCP in **two** forms in different tools:
+  integer (`77048169`, from `search_meetings`) and Relay base64
+  (`Tm90ZTo3NzA0ODE2OQ==`, from `get_action_items` /
+  `get_channel_details`). The CLI's resource-id validator rejects
+  base64 padding (`=`), so Relay-form ids are not directly usable —
+  decode `Note:N` → `N` first, or grab the integer form from
+  `search_meetings`.
+- `user_id` from MCP is Relay base64 (`VXNlcjoxMzgyMjIx`); the CLI
+  does not consume user ids.
 
 ## Disambiguation when other meeting tools are present
 
